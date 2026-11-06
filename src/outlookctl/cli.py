@@ -81,6 +81,24 @@ from .safety import (
 from .audit import log_send_operation, log_draft_operation
 
 
+def _force_utf8_stdio() -> None:
+    """
+    Force UTF-8 on stdout/stderr.
+
+    On Windows the console streams default to the ANSI code page (e.g. cp1252),
+    so printing non-Latin text such as Vietnamese subjects raises
+    UnicodeEncodeError ("charmap" codec). Command-line arguments are already
+    Unicode on Windows, so only the output streams need fixing.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def output_json(data: dict, output_format: str = "json") -> None:
     """Output data in the specified format."""
     if output_format == "json":
@@ -1588,6 +1606,7 @@ def create_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Main entry point."""
+    _force_utf8_stdio()
     parser = create_parser()
     args = parser.parse_args()
 
