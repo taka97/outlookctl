@@ -697,6 +697,13 @@
       </div>
 
       <div class="sidebar-section">
+        <div class="sidebar-title">Contact Group Commands</div>
+        <ul class="sidebar-nav">
+          <li><a href="#contacts-group"><span class="cmd-icon">$</span> contacts group <span class="new-badge">new</span></a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
         <div class="sidebar-title">Calendar Commands</div>
         <ul class="sidebar-nav">
           <li><a href="#calendar-calendars"><span class="cmd-icon">$</span> calendar calendars <span class="new-badge">new</span></a></li>
@@ -841,7 +848,9 @@
                   <div class="folder-item"><code>junk</code> <span>Junk/spam</span></div>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 12px;">
-                  Custom folders: <code>by-name:FolderName</code> or <code>by-path:Inbox/Subfolder</code>
+                  Custom folders: <code>by-name:FolderName</code> or <code>by-path:Inbox/Subfolder</code>.
+                  Both search every store, starting with the store that holds the default Inbox.
+                  Prefix the path with a store name to pick a store: <code>by-path:me@example.com/Inbox/Subfolder</code>.
                 </p>
               </div>
             </div>
@@ -943,7 +952,7 @@
               <span class="command-type">email</span>
             </div>
             <div class="command-body">
-              <p class="command-desc">Create a draft message. The draft is saved to the Drafts folder and can be reviewed before sending.</p>
+              <p class="command-desc">Create a draft message, reply or reply-all. The draft is saved to the Drafts folder and can be reviewed before sending.</p>
 
               <div class="code-block">
                 <div class="code-header">
@@ -973,8 +982,37 @@
                     <tr><td><code>--reply-to-id</code></td><td>Entry ID of message to reply to</td></tr>
                     <tr><td><code>--reply-to-store</code></td><td>Store ID of message to reply to</td></tr>
                     <tr><td><code>--reply-all</code></td><td>Reply-all instead of reply <span class="label label-new">new</span></td></tr>
+                    <tr><td><code>--allow-unresolved</code></td><td>Save even if Outlook cannot resolve some recipients <span class="label label-new">new</span></td></tr>
                   </tbody>
                 </table>
+              </div>
+
+              <div class="subsection">
+                <h4>Replies <span class="label label-new">new</span></h4>
+                <div class="code-block">
+                  <div class="code-header">
+                    <span class="code-lang">bash</span>
+                    <button class="code-copy">Copy</button>
+                  </div>
+                  <div class="code-content"><span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">draft</span> \
+  <span class="syn-flag">--reply-to-id</span> <span class="syn-string">"00000..."</span> <span class="syn-flag">--reply-to-store</span> <span class="syn-string">"00000..."</span> <span class="syn-flag">--reply-all</span> \
+  <span class="syn-flag">--to</span> <span class="syn-string">"boss@example.com"</span> <span class="syn-flag">--cc</span> <span class="syn-string">"Team Group"</span> \
+  <span class="syn-flag">--attach</span> <span class="syn-string">"report.xlsx"</span> <span class="syn-flag">--body-text</span> <span class="syn-string">"Please find the report attached."</span></div>
+                </div>
+                <ul>
+                  <li>The new text is inserted above the quoted original, which keeps its HTML formatting.</li>
+                  <li><code>--to</code>, <code>--cc</code> and <code>--bcc</code> <strong>replace</strong> that recipient type; omit them to keep what Outlook filled in.</li>
+                  <li>The <code>RE:</code> subject is kept unless <code>--subject</code> is given. <code>--attach</code> works for replies too.</li>
+                </ul>
+              </div>
+
+              <div class="subsection">
+                <h4>Recipients <span class="label label-new">new</span></h4>
+                <ul>
+                  <li>Wrapping quotes (<code>'a@b.com'</code>) and <code>Name &lt;a@b.com&gt;</code> wrappers are removed; duplicates are dropped.</li>
+                  <li>Contact group names (for example <code>--cc "Team Group"</code>) are accepted.</li>
+                  <li>If Outlook cannot resolve a recipient, nothing is saved and the error code is <code>UNRESOLVED_RECIPIENTS</code>, unless <code>--allow-unresolved</code> is given.</li>
+                </ul>
               </div>
             </div>
           </div>
@@ -1020,6 +1058,7 @@
                     <tr><td><code>--confirm-send-file</code></td><td>Path to file containing "YES"</td></tr>
                     <tr><td><code>--unsafe-send-new</code></td><td>Required for sending new message directly</td></tr>
                     <tr><td><code>--log-body</code></td><td>Include body in audit log</td></tr>
+                    <tr><td><code>--allow-unresolved</code></td><td>Send a new message even if some recipients are unresolved <span class="label label-new">new</span></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1187,7 +1226,8 @@
                     <tr><td><code>--to</code></td><td><span class="label label-required">Required</span></td><td>To recipients (comma-separated)</td></tr>
                     <tr><td><code>--cc</code></td><td><span class="label label-optional">Optional</span></td><td>CC recipients</td></tr>
                     <tr><td><code>--bcc</code></td><td><span class="label label-optional">Optional</span></td><td>BCC recipients</td></tr>
-                    <tr><td><code>--message</code></td><td><span class="label label-optional">Optional</span></td><td>Additional text to prepend</td></tr>
+                    <tr><td><code>--message</code></td><td><span class="label label-optional">Optional</span></td><td>Text inserted above the forwarded content (formatting kept)</td></tr>
+                    <tr><td><code>--allow-unresolved</code></td><td><span class="label label-optional">Optional</span></td><td>Save even if some recipients are unresolved <span class="label label-new">new</span></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1226,6 +1266,67 @@
                     <tr><td><code>--id</code></td><td><span class="label label-required">Required</span></td><td>Message entry ID</td></tr>
                     <tr><td><code>--store</code></td><td><span class="label label-required">Required</span></td><td>Message store ID</td></tr>
                     <tr><td><code>--dest</code></td><td><span class="label label-required">Required</span></td><td>Destination directory</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Contacts group (NEW) -->
+        <section id="contacts-group" class="section">
+          <div class="command-card new-command">
+            <div class="command-header">
+              <span class="command-name">outlookctl contacts group</span>
+              <div class="command-badges">
+                <span class="command-type">contacts</span>
+                <span class="command-type new">new</span>
+              </div>
+            </div>
+            <div class="command-body">
+              <p class="command-desc">Manage Outlook contact groups (distribution lists) on every store's Contacts folder. Use a group name anywhere an address is accepted, e.g. <code>--cc "Team Group"</code>.</p>
+
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">bash</span>
+                  <button class="code-copy">Copy</button>
+                </div>
+                <div class="code-content"><span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group list</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group show</span>   <span class="syn-flag">--name</span> <span class="syn-string">"Team Group"</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group create</span> <span class="syn-flag">--name</span> <span class="syn-string">"Team Group"</span> <span class="syn-flag">--members</span> <span class="syn-string">"a@x.com,b@x.com"</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group add</span>    <span class="syn-flag">--name</span> <span class="syn-string">"Team Group"</span> <span class="syn-flag">--members</span> <span class="syn-string">"c@x.com"</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group remove</span> <span class="syn-flag">--name</span> <span class="syn-string">"Team Group"</span> <span class="syn-flag">--members</span> <span class="syn-string">"a@x.com"</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">contacts group delete</span> <span class="syn-flag">--name</span> <span class="syn-string">"Team Group"</span> <span class="syn-flag">--confirm</span> <span class="syn-value">YES</span></div>
+              </div>
+
+              <div class="subsection">
+                <h4>Subcommands</h4>
+                <table class="options-table">
+                  <thead>
+                    <tr><th>Subcommand</th><th>Description</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><code>list</code></td><td>List groups on all stores with their members</td></tr>
+                    <tr><td><code>show</code></td><td>Show one group and its members</td></tr>
+                    <tr><td><code>create</code></td><td>Create a group in the default Contacts folder (or <code>--store</code>); fails if the name already exists there</td></tr>
+                    <tr><td><code>add</code></td><td>Add members; already-present members are reported as <code>skipped</code></td></tr>
+                    <tr><td><code>remove</code></td><td>Remove members; members not in the group are reported as <code>skipped</code></td></tr>
+                    <tr><td><code>delete</code></td><td>Move the group to Deleted Items; requires <code>--confirm YES</code></td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="subsection">
+                <h4>Options</h4>
+                <table class="options-table">
+                  <thead>
+                    <tr><th>Option</th><th>Required</th><th>Description</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><code>--name</code></td><td><span class="label label-required">Required</span></td><td>Group name (case-insensitive); not used by <code>list</code></td></tr>
+                    <tr><td><code>--members</code></td><td><span class="label label-optional">add/remove</span></td><td>Comma-separated addresses (optional for <code>create</code>)</td></tr>
+                    <tr><td><code>--store</code></td><td><span class="label label-optional">Optional</span></td><td>Store display name, needed when the same group name exists on several stores</td></tr>
+                    <tr><td><code>--confirm</code></td><td><span class="label label-optional">delete</span></td><td>Must be <code>YES</code> to delete</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1383,7 +1484,7 @@
                     <tr><td><code>--location</code></td><td><span class="default">-</span></td><td>Location</td></tr>
                     <tr><td><code>--attendees</code></td><td><span class="default">-</span></td><td>Required attendees</td></tr>
                     <tr><td><code>--optional-attendees</code></td><td><span class="default">-</span></td><td>Optional attendees</td></tr>
-                    <tr><td><code>--all-day</code></td><td><span class="default">false</span></td><td>All-day event</td></tr>
+                    <tr><td><code>--all-day</code></td><td><span class="default">false</span></td><td>All-day event (<code>--end</code> is the last day, inclusive)</td></tr>
                     <tr><td><code>--busy-status</code></td><td><span class="default">busy</span></td><td>free, tentative, busy, etc.</td></tr>
                     <tr><td><code>--recurrence</code></td><td><span class="default">-</span></td><td>Recurrence pattern</td></tr>
                   </tbody>

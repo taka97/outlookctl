@@ -613,6 +613,8 @@
           <li><a href="#send-result"><span class="icon">{}</span> SendResult</a></li>
           <li><a href="#attachment-result"><span class="icon">{}</span> AttachmentResult</a></li>
           <li><a href="#doctor-result"><span class="icon">{}</span> DoctorResult</a></li>
+          <li><a href="#contact-group-result"><span class="icon">{}</span> ContactGroupResult</a></li>
+          <li><a href="#timestamps"><span class="icon">#</span> Timestamps</a></li>
         </ul>
       </div>
 
@@ -716,7 +718,7 @@
         <span class="json-key">"entry_id"</span>: <span class="json-string">"00000000..."</span>,
         <span class="json-key">"store_id"</span>: <span class="json-string">"00000000..."</span>
       },
-      <span class="json-key">"received_at"</span>: <span class="json-string">"2025-01-15T09:30:00"</span>,
+      <span class="json-key">"received_at"</span>: <span class="json-string">"2025-01-15T09:30:00+07:00"</span>,
       <span class="json-key">"subject"</span>: <span class="json-string">"Meeting Tomorrow"</span>,
       <span class="json-key">"from"</span>: {
         <span class="json-key">"name"</span>: <span class="json-string">"Jane Smith"</span>,
@@ -794,7 +796,7 @@
     <span class="json-key">"entry_id"</span>: <span class="json-string">"00000000..."</span>,
     <span class="json-key">"store_id"</span>: <span class="json-string">"00000000..."</span>
   },
-  <span class="json-key">"received_at"</span>: <span class="json-string">"2025-01-15T09:30:00"</span>,
+  <span class="json-key">"received_at"</span>: <span class="json-string">"2025-01-15T09:30:00+07:00"</span>,
   <span class="json-key">"subject"</span>: <span class="json-string">"Meeting Tomorrow"</span>,
   <span class="json-key">"from"</span>: {
     <span class="json-key">"name"</span>: <span class="json-string">"Jane Smith"</span>,
@@ -854,6 +856,7 @@
   <span class="json-key">"attachments"</span>: [<span class="json-string">"./report.pdf"</span>]
 }</div>
               </div>
+              <p class="schema-desc"><code>unresolved</code> (list of names) is added only when <code>--allow-unresolved</code> was used and Outlook could not resolve some recipients. The same field appears in the <code>forward</code> result.</p>
             </div>
           </div>
         </section>
@@ -966,6 +969,47 @@
           </div>
         </section>
 
+        <!-- Contact Group Result -->
+        <section id="contact-group-result" class="section">
+          <h2>ContactGroupResult</h2>
+          <div class="schema-card">
+            <div class="schema-header">
+              <span class="schema-name">ContactGroupResult</span>
+              <span class="schema-type">Response</span>
+            </div>
+            <div class="schema-body">
+              <p class="schema-desc">Output of <code>contacts group show|create|add|remove|delete</code>. <code>message</code>, <code>added</code>, <code>removed</code> and <code>skipped</code> are omitted when empty. <code>contacts group list</code> returns <code>{"version", "count", "groups": [group, ...]}</code>.</p>
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">json</span>
+                  <button class="code-copy">Copy</button>
+                </div>
+                <div class="code-content">{
+  <span class="json-key">"version"</span>: <span class="json-string">"1.0"</span>,
+  <span class="json-key">"success"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"group"</span>: {
+    <span class="json-key">"name"</span>: <span class="json-string">"Team Group"</span>,
+    <span class="json-key">"store"</span>: <span class="json-string">"me@example.com"</span>,
+    <span class="json-key">"member_count"</span>: <span class="json-number">2</span>,
+    <span class="json-key">"members"</span>: [
+      { <span class="json-key">"name"</span>: <span class="json-string">"a@x.com"</span>, <span class="json-key">"email"</span>: <span class="json-string">"a@x.com"</span> },
+      { <span class="json-key">"name"</span>: <span class="json-string">"c@x.com"</span>, <span class="json-key">"email"</span>: <span class="json-string">"c@x.com"</span> }
+    ]
+  },
+  <span class="json-key">"added"</span>: [<span class="json-string">"c@x.com"</span>],
+  <span class="json-key">"skipped"</span>: [<span class="json-string">"a@x.com"</span>]
+}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Timestamps -->
+        <section id="timestamps" class="section">
+          <h2>Timestamps</h2>
+          <p>Outlook dates (<code>received_at</code>, event <code>start</code>/<code>end</code>, recurrence <code>end_date</code>) are ISO 8601 local time with the machine's real UTC offset, for example <code>"2026-11-11T09:00:00+07:00"</code> for 09:00 in UTC+7.</p>
+        </section>
+
         <!-- Error Result -->
         <section id="error-result" class="section">
           <h2>ErrorResult</h2>
@@ -1036,6 +1080,18 @@
               <tr>
                 <td><code>ATTACHMENT_ERROR</code></td>
                 <td>Failed to save attachments</td>
+              </tr>
+              <tr>
+                <td><code>UNRESOLVED_RECIPIENTS</code></td>
+                <td>Outlook could not resolve one or more recipients; nothing was saved or sent (use <code>--allow-unresolved</code> to override)</td>
+              </tr>
+              <tr>
+                <td><code>GROUP_NOT_FOUND</code></td>
+                <td>Contact group name not found</td>
+              </tr>
+              <tr>
+                <td><code>GROUP_ERROR</code></td>
+                <td>Contact group operation failed (e.g. name already exists, ambiguous store)</td>
               </tr>
             </tbody>
           </table>
