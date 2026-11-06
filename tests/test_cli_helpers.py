@@ -86,3 +86,29 @@ class TestParseDate:
     def test_invalid_format(self):
         with pytest.raises(ValueError):
             parse_date("not-a-date")
+
+
+class TestRecipientNormalization:
+    def test_strips_wrapping_quotes(self):
+        to_list, cc_list, _ = parse_recipient_args(
+            to="'trang.do@tsp.com.vn'",
+            cc='"an.nguyen@tsp.com.vn", nam.tran@tsp.com.vn',
+        )
+        assert to_list == ["trang.do@tsp.com.vn"]
+        assert cc_list == ["an.nguyen@tsp.com.vn", "nam.tran@tsp.com.vn"]
+
+    def test_extracts_angle_address(self):
+        to_list, _, _ = parse_recipient_args(to="Trang Do <trang.do@tsp.com.vn>")
+        assert to_list == ["trang.do@tsp.com.vn"]
+
+    def test_keeps_group_names(self):
+        _, cc_list, _ = parse_recipient_args(cc="Technical Team")
+        assert cc_list == ["Technical Team"]
+
+    def test_drops_empty_and_case_insensitive_duplicates(self):
+        to_list, _, _ = parse_recipient_args(to="a@x.com, ,A@X.com,'a@x.com',b@x.com")
+        assert to_list == ["a@x.com", "b@x.com"]
+
+    def test_vietnamese_display_name(self):
+        to_list, _, _ = parse_recipient_args(to="Hồ Văn Hoàng <hoang.ho@tsp.com.vn>")
+        assert to_list == ["hoang.ho@tsp.com.vn"]

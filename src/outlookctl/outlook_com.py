@@ -155,6 +155,16 @@ class MessageNotFoundError(OutlookError):
     pass
 
 
+class UnresolvedRecipientsError(OutlookError):
+    """Raised when Outlook cannot resolve one or more recipients."""
+
+    def __init__(self, names: list[str]):
+        self.names = names
+        super().__init__(
+            "Outlook could not resolve recipient(s): " + ", ".join(names)
+        )
+
+
 class EventNotFoundError(OutlookError):
     """Raised when a calendar event cannot be found."""
     pass
@@ -859,6 +869,47 @@ def search_messages(
             continue
 
 
+def add_recipients(mail, to=None, cc=None, bcc=None) -> None:
+    """Add To/CC/BCC recipients to a mail item."""
+    for recipients, recipient_type in (
+        (to or [], OL_RECIPIENT_TO),
+        (cc or [], OL_RECIPIENT_CC),
+        (bcc or [], OL_RECIPIENT_BCC),
+    ):
+        for addr in recipients:
+            mail.Recipients.Add(addr).Type = recipient_type
+
+
+def unresolved_recipients(mail) -> list[str]:
+    """Resolve all recipients of a mail item and return the names Outlook could not resolve."""
+    mail.Recipients.ResolveAll()
+    return [
+        str(recip.Name)
+        for recip in iter_com_collection(mail.Recipients)
+        if not recip.Resolved
+    ]
+
+
+def ensure_recipients_resolved(mail, allow_unresolved: bool = False) -> list[str]:
+    """
+    Resolve recipients and stop unless all of them resolved.
+
+    Returns the unresolved names (only non-empty when allow_unresolved is True).
+
+    Raises:
+        UnresolvedRecipientsError: if some recipients are unresolved and
+            allow_unresolved is False. The mail item is discarded, not saved.
+    """
+    names = unresolved_recipients(mail)
+    if names and not allow_unresolved:
+        try:
+            mail.Close(1)  # olDiscard
+        except Exception:
+            pass
+        raise UnresolvedRecipientsError(names)
+    return names
+
+
 def create_draft(
     outlook_app,
     to: list[str],
@@ -870,7 +921,8 @@ def create_draft(
     attachments: list[str] = None,
     reply_to_entry_id: str = None,
     reply_to_store_id: str = None,
-) -> tuple[str, str]:
+    allow_unresolved: bool = False,
+) -> tuple[str, str, list[str]]:
     """
     Create a draft email.
 
@@ -885,9 +937,10 @@ def create_draft(
         attachments: List of file paths to attach
         reply_to_entry_id: Entry ID of message to reply to
         reply_to_store_id: Store ID of message to reply to
+        allow_unresolved: Save the draft even if some recipients are unresolved
 
     Returns:
-        Tuple of (entry_id, store_id) of the created draft
+        Tuple of (entry_id, store_id, unresolved_names) of the created draft
 
     Raises:
         OutlookError: If draft creation fails
@@ -919,16 +972,8 @@ def create_draft(
         # Set subject
         mail.Subject = subject
 
-        # Set recipients
-        for addr in to:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_TO
-        for addr in cc:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_CC
-        for addr in bcc:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_BCC
-
-        # Resolve recipients
-        mail.Recipients.ResolveAll()
+        add_recipients(mail, to, cc, bcc)
+        unresolved = ensure_recipients_resolved(mail, allow_unresolved)
 
         # Add attachments
         for att_path in attachments:
@@ -940,8 +985,10 @@ def create_draft(
         # Save as draft
         mail.Save()
 
-        return mail.EntryID, mail.Parent.StoreID
+        return mail.EntryID, mail.Parent.StoreID, unresolved
 
+    except OutlookError:
+        raise
     except Exception as e:
         raise OutlookError(f"Failed to create draft: {e}")
 
@@ -974,6 +1021,7 @@ def send_new_message(
     body_text: str = None,
     body_html: str = None,
     attachments: list[str] = None,
+    allow_unresolved: bool = False,
 ) -> None:
     """
     Create and immediately send a new message.
@@ -1005,15 +1053,8 @@ def send_new_message(
         elif body_text:
             mail.Body = body_text
 
-        # Set recipients
-        for addr in to:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_TO
-        for addr in cc:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_CC
-        for addr in bcc:
-            mail.Recipients.Add(addr).Type = OL_RECIPIENT_BCC
-
-        mail.Recipients.ResolveAll()
+        add_recipients(mail, to, cc, bcc)
+        ensure_recipients_resolved(mail, allow_unresolved)
 
         # Add attachments
         for att_path in attachments:
@@ -1025,6 +1066,8 @@ def send_new_message(
         # Send
         mail.Send()
 
+    except OutlookError:
+        raise
     except Exception as e:
         raise OutlookError(f"Failed to send message: {e}")
 
@@ -1212,7 +1255,8 @@ def create_forward(
     cc: list[str] = None,
     bcc: list[str] = None,
     additional_text: str = None,
-) -> tuple[str, str]:
+    allow_unresolved: bool = False,
+) -> tuple[str, str, list[str]]:
     """
     Create a forward draft for a message.
 
@@ -1224,9 +1268,10 @@ def create_forward(
         cc: List of CC recipients
         bcc: List of BCC recipients
         additional_text: Text to add at the beginning of the forward
+        allow_unresolved: Save the draft even if some recipients are unresolved
 
     Returns:
-        Tuple of (entry_id, store_id) of the forward draft
+        Tuple of (entry_id, store_id, unresolved_names) of the forward draft
 
     Raises:
         OutlookError: If forward creation fails
@@ -1238,15 +1283,8 @@ def create_forward(
         original = get_message_by_id(outlook_app, entry_id, store_id)
         forward = original.Forward()
 
-        # Set recipients
-        for addr in to:
-            forward.Recipients.Add(addr).Type = OL_RECIPIENT_TO
-        for addr in cc:
-            forward.Recipients.Add(addr).Type = OL_RECIPIENT_CC
-        for addr in bcc:
-            forward.Recipients.Add(addr).Type = OL_RECIPIENT_BCC
-
-        forward.Recipients.ResolveAll()
+        add_recipients(forward, to, cc, bcc)
+        unresolved = ensure_recipients_resolved(forward, allow_unresolved)
 
         # Add additional text if provided
         if additional_text:
@@ -1254,9 +1292,9 @@ def create_forward(
 
         forward.Save()
 
-        return forward.EntryID, forward.Parent.StoreID
+        return forward.EntryID, forward.Parent.StoreID, unresolved
 
-    except MessageNotFoundError:
+    except OutlookError:
         raise
     except Exception as e:
         raise OutlookError(f"Failed to create forward: {e}")

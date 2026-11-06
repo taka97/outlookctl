@@ -149,6 +149,7 @@ class DraftResult:
     to: list[str] = field(default_factory=list)
     cc: list[str] = field(default_factory=list)
     attachments: list[str] = field(default_factory=list)
+    unresolved: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         result = {
@@ -166,6 +167,8 @@ class DraftResult:
             result["cc"] = self.cc
         if self.attachments:
             result["attachments"] = self.attachments
+        if self.unresolved:
+            result["unresolved"] = self.unresolved
         return result
 
 
@@ -285,6 +288,7 @@ class ForwardResult:
     saved_to: str = "Drafts"
     original_subject: Optional[str] = None
     to: list[str] = field(default_factory=list)
+    unresolved: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         result = {
@@ -298,6 +302,8 @@ class ForwardResult:
             result["original_subject"] = self.original_subject
         if self.to:
             result["to"] = self.to
+        if self.unresolved:
+            result["unresolved"] = self.unresolved
         return result
 
 

@@ -50,6 +50,7 @@ from .outlook_com import (
     save_attachments,
     run_doctor,
     OutlookError,
+    UnresolvedRecipientsError,
     OutlookNotAvailableError,
     FolderNotFoundError,
     MessageNotFoundError,
@@ -79,6 +80,7 @@ from .safety import (
     SendConfirmationError,
 )
 from .audit import log_send_operation, log_draft_operation
+from .utils import normalize_recipients
 
 
 def _force_utf8_stdio() -> None:
@@ -148,6 +150,8 @@ def handle_outlook_errors(error_code: str) -> Callable:
                 output_error(str(e), "CONFIRMATION_REQUIRED", "Use --confirm-send YES")
             except ValueError as e:
                 output_error(str(e), "VALIDATION_ERROR")
+            except UnresolvedRecipientsError as e:
+                output_error(str(e), "UNRESOLVED_RECIPIENTS", "Fix the address or contact group name, or pass --allow-unresolved to save anyway.")
             except OutlookError as e:
                 output_error(str(e), error_code)
             except Exception as e:
@@ -164,6 +168,9 @@ def parse_recipient_args(
     """
     Parse recipient arguments from comma-separated strings.
 
+    Each address is normalized (surrounding quotes and ``Name <addr>`` wrappers
+    removed) and duplicates are dropped.
+
     Args:
         to: Comma-separated To addresses
         cc: Comma-separated CC addresses
@@ -172,10 +179,10 @@ def parse_recipient_args(
     Returns:
         Tuple of (to_list, cc_list, bcc_list)
     """
-    to_list = [addr.strip() for addr in to.split(",") if addr.strip()] if to else []
-    cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else []
-    bcc_list = [addr.strip() for addr in bcc.split(",") if addr.strip()] if bcc else []
-    return to_list, cc_list, bcc_list
+    def split(value: Optional[str]) -> list[str]:
+        return normalize_recipients(value.split(",")) if value else []
+
+    return split(to), split(cc), split(bcc)
 
 
 def parse_date(date_str: str) -> Optional[datetime]:
@@ -315,6 +322,7 @@ def cmd_draft(args: argparse.Namespace) -> None:
         outlook = get_outlook_app()
 
         # Handle reply-all differently
+        unresolved: list[str] = []
         if args.reply_all and args.reply_to_id and args.reply_to_store:
             entry_id, store_id = create_reply_all(
                 outlook,
@@ -324,7 +332,7 @@ def cmd_draft(args: argparse.Namespace) -> None:
                 body_html=args.body_html,
             )
         else:
-            entry_id, store_id = create_draft(
+            entry_id, store_id, unresolved = create_draft(
                 outlook,
                 to=to_list,
                 cc=cc_list,
@@ -335,6 +343,7 @@ def cmd_draft(args: argparse.Namespace) -> None:
                 attachments=args.attach or [],
                 reply_to_entry_id=args.reply_to_id,
                 reply_to_store_id=args.reply_to_store,
+                allow_unresolved=args.allow_unresolved,
             )
 
         log_draft_operation(
@@ -354,6 +363,7 @@ def cmd_draft(args: argparse.Namespace) -> None:
             to=to_list,
             cc=cc_list,
             attachments=args.attach or [],
+            unresolved=unresolved,
         )
         output_json(result.to_dict(), args.output)
 
@@ -361,6 +371,8 @@ def cmd_draft(args: argparse.Namespace) -> None:
         output_error(str(e), "OUTLOOK_UNAVAILABLE", "Start Classic Outlook and try again.")
     except ValueError as e:
         output_error(str(e), "VALIDATION_ERROR")
+    except UnresolvedRecipientsError as e:
+        output_error(str(e), "UNRESOLVED_RECIPIENTS", "Fix the address or contact group name, or pass --allow-unresolved to save anyway.")
     except OutlookError as e:
         log_draft_operation(
             to=to_list,
@@ -430,6 +442,7 @@ def cmd_send(args: argparse.Namespace) -> None:
                 body_text=args.body_text,
                 body_html=args.body_html,
                 attachments=args.attach or [],
+                allow_unresolved=args.allow_unresolved,
             )
 
             log_send_operation(
@@ -467,6 +480,8 @@ def cmd_send(args: argparse.Namespace) -> None:
         output_error(str(e), "DRAFT_NOT_FOUND")
     except ValueError as e:
         output_error(str(e), "VALIDATION_ERROR")
+    except UnresolvedRecipientsError as e:
+        output_error(str(e), "UNRESOLVED_RECIPIENTS", "Fix the address or contact group name, or pass --allow-unresolved to save anyway.")
     except OutlookError as e:
         log_send_operation(
             to=[],
@@ -593,7 +608,7 @@ def cmd_forward(args: argparse.Namespace) -> None:
     original = get_message_by_id(outlook, args.id, args.store)
     original_subject = str(original.Subject or "")
 
-    entry_id, store_id = create_forward(
+    entry_id, store_id, unresolved = create_forward(
         outlook,
         entry_id=args.id,
         store_id=args.store,
@@ -601,6 +616,7 @@ def cmd_forward(args: argparse.Namespace) -> None:
         cc=cc_list,
         bcc=bcc_list,
         additional_text=args.message,
+        allow_unresolved=args.allow_unresolved,
     )
 
     result = ForwardResult(
@@ -609,6 +625,7 @@ def cmd_forward(args: argparse.Namespace) -> None:
         saved_to="Drafts",
         original_subject=original_subject,
         to=to_list,
+        unresolved=unresolved,
     )
     output_json(result.to_dict(), args.output)
 
@@ -1183,6 +1200,10 @@ def create_parser() -> argparse.ArgumentParser:
         help="Create reply-all instead of reply (use with --reply-to-id/--reply-to-store)"
     )
     draft_parser.add_argument(
+        "--allow-unresolved", action="store_true",
+        help="Save the draft even if Outlook cannot resolve some recipients"
+    )
+    draft_parser.add_argument(
         "--output", choices=["json", "text"], default="json",
         help="Output format (default: json)"
     )
@@ -1208,6 +1229,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     send_parser.add_argument(
         "--bcc", help="BCC recipients (comma-separated)"
+    )
+    send_parser.add_argument(
+        "--allow-unresolved", action="store_true",
+        help="Send even if Outlook cannot resolve some recipients (new messages only)"
     )
     send_parser.add_argument(
         "--subject", help="Email subject"
@@ -1353,6 +1378,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     forward_parser.add_argument(
         "--message", help="Additional message to prepend to the forward"
+    )
+    forward_parser.add_argument(
+        "--allow-unresolved", action="store_true",
+        help="Save the draft even if Outlook cannot resolve some recipients"
     )
     forward_parser.add_argument(
         "--output", choices=["json", "text"], default="json",

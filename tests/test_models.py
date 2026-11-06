@@ -327,3 +327,15 @@ class TestEventDeleteResult:
         )
         output = result.to_dict()
         assert output["cancelled"] is True
+
+
+class TestUnresolvedField:
+    def test_draft_result_includes_unresolved_only_when_present(self):
+        from outlookctl.models import DraftResult
+        assert "unresolved" not in DraftResult().to_dict()
+        assert DraftResult(unresolved=["Bad Name"]).to_dict()["unresolved"] == ["Bad Name"]
+
+    def test_forward_result_includes_unresolved_only_when_present(self):
+        from outlookctl.models import ForwardResult
+        assert "unresolved" not in ForwardResult().to_dict()
+        assert ForwardResult(unresolved=["x"]).to_dict()["unresolved"] == ["x"]
