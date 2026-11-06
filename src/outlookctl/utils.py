@@ -69,3 +69,18 @@ def insert_into_html_body(document: str, fragment: str) -> str:
     if not match:
         return fragment + (document or "")
     return document[: match.end()] + fragment + document[match.end():]
+
+
+def split_store_prefix(parts: list[str], store_names: list[str]) -> tuple:
+    """
+    Split a folder path into (store_name, remaining_parts).
+
+    If the first path segment equals a store display name (case-insensitive),
+    it is returned as the store name and removed from the parts; otherwise the
+    store name is None and the parts are returned unchanged.
+    """
+    if parts:
+        for name in store_names:
+            if parts[0].lower() == name.lower():
+                return name, list(parts[1:])
+    return None, list(parts)

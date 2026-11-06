@@ -7,13 +7,14 @@ data extraction from Outlook objects.
 """
 
 import os
+import sys
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Iterator, Any
 
-from .utils import insert_into_html_body, text_to_html_fragment
+from .utils import insert_into_html_body, split_store_prefix, text_to_html_fragment
 from .models import (
     ContactGroup,
     GroupMember,
@@ -302,74 +303,110 @@ def get_default_folder(outlook_app, folder_type: int):
     return namespace.GetDefaultFolder(folder_type)
 
 
+def _store_roots_default_first(namespace) -> list[tuple[str, Any]]:
+    """
+    Return (store_name, root_folder) for every store, the default store first.
+
+    The default store is the one holding the default Inbox, which is not
+    necessarily namespace.Folders.Item(1) (e.g. a PST can be listed first).
+    """
+    try:
+        default_store_id = namespace.GetDefaultFolder(OL_FOLDER_INBOX).Store.StoreID
+    except Exception:
+        default_store_id = None
+
+    roots = []
+    for store in iter_com_collection(namespace.Stores):
+        try:
+            roots.append((str(store.DisplayName), store.GetRootFolder(), store.StoreID == default_store_id))
+        except Exception:
+            continue  # disconnected PST etc. must not block other stores
+    roots.sort(key=lambda entry: not entry[2])
+    return [(name, root_folder) for name, root_folder, _ in roots]
+
+
+def _find_child(parent, name: str):
+    for folder in iter_com_collection(parent.Folders):
+        if str(folder.Name).lower() == name.lower():
+            return folder
+    return None
+
+
+def _search_folder_tree(parent, name: str):
+    for folder in iter_com_collection(parent.Folders):
+        if str(folder.Name).lower() == name.lower():
+            return folder
+        try:
+            found = _search_folder_tree(folder, name)
+        except Exception:
+            found = None
+        if found is not None:
+            return found
+    return None
+
+
 def get_folder_by_name(outlook_app, folder_name: str):
     """
-    Get a folder by name from the default store.
+    Find a folder by name in any store (default store first).
 
-    Args:
-        outlook_app: Outlook Application COM object
-        folder_name: Name of the folder to find
-
-    Returns:
-        Folder COM object
+    If several stores contain a folder with that name, the one in the default
+    store wins and a warning listing the others is written to stderr.
 
     Raises:
         FolderNotFoundError: If folder not found
     """
     namespace = get_namespace(outlook_app)
-    root_folder = namespace.Folders.Item(1)  # Default store
+    matches = []
+    for _store_name, root_folder in _store_roots_default_first(namespace):
+        try:
+            found = _search_folder_tree(root_folder, folder_name)
+        except Exception:
+            found = None
+        if found is not None:
+            matches.append(found)
 
-    def search_folder(parent, name):
-        for folder in parent.Folders:
-            if folder.Name.lower() == name.lower():
-                return folder
-            # Search subfolders
-            try:
-                result = search_folder(folder, name)
-                if result:
-                    return result
-            except Exception:
-                pass
-        return None
-
-    folder = search_folder(root_folder, folder_name)
-    if not folder:
+    if not matches:
         raise FolderNotFoundError(f"Folder not found: {folder_name}")
-    return folder
+    if len(matches) > 1:
+        others = ", ".join(str(f.FolderPath) for f in matches[1:])
+        print(
+            f"warning: folder '{folder_name}' also exists at: {others}; "
+            f"using {matches[0].FolderPath}",
+            file=sys.stderr,
+        )
+    return matches[0]
 
 
 def get_folder_by_path(outlook_app, folder_path: str):
     """
-    Get a folder by path (e.g., "Inbox/Subfolder").
+    Get a folder by path, e.g. "Inbox/Subfolder" or "store name/Inbox/Subfolder".
 
-    Args:
-        outlook_app: Outlook Application COM object
-        folder_path: Path to the folder, separated by /
-
-    Returns:
-        Folder COM object
+    A leading segment that matches a store display name selects that store.
+    Otherwise the path is tried on the default store first, then on the others.
 
     Raises:
         FolderNotFoundError: If folder not found
     """
     namespace = get_namespace(outlook_app)
-    parts = folder_path.strip("/").split("/")
+    roots = _store_roots_default_first(namespace)
+    parts = [part for part in folder_path.strip("/").split("/") if part]
+    store_name, rest = split_store_prefix(parts, [name for name, _ in roots])
 
-    # Start with the default store's root
-    root_folder = namespace.Folders.Item(1)
-    current = root_folder
-
-    for part in parts:
-        found = False
-        for folder in current.Folders:
-            if folder.Name.lower() == part.lower():
-                current = folder
-                found = True
+    for name, root_folder in roots:
+        if store_name is not None and name.lower() != store_name.lower():
+            continue
+        current = root_folder
+        for part in rest:
+            try:
+                current = _find_child(current, part)
+            except Exception:
+                current = None
+            if current is None:
                 break
-        if not found:
-            raise FolderNotFoundError(f"Folder path not found: {folder_path}")
+        if current is not None:
+            return current
 
-    return current
+    raise FolderNotFoundError(f"Folder path not found: {folder_path}")
 
 
 def resolve_folder(outlook_app, folder_spec: str):
