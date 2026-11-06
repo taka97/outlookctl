@@ -15,6 +15,8 @@ from typing import Optional, Iterator, Any
 
 from .utils import insert_into_html_body, text_to_html_fragment
 from .models import (
+    ContactGroup,
+    GroupMember,
     MessageId,
     EmailAddress,
     FolderInfo,
@@ -39,10 +41,15 @@ OL_FOLDER_DELETED_ITEMS = 3
 OL_FOLDER_OUTBOX = 4
 OL_FOLDER_JUNK = 23
 OL_FOLDER_CALENDAR = 9
+OL_FOLDER_CONTACTS = 10
 
 # Outlook item class constants (OlObjectClass enumeration)
 OL_ITEM_CLASS_MAIL = 43
 OL_ITEM_CLASS_APPOINTMENT = 26
+OL_ITEM_CLASS_DIST_LIST = 69
+
+# Outlook item type for Items.Add (OlItemType enumeration)
+OL_ITEM_TYPE_DIST_LIST = 7
 
 # Outlook recipient type constants (OlMailRecipientType enumeration)
 OL_RECIPIENT_TO = 1
@@ -164,6 +171,11 @@ class UnresolvedRecipientsError(OutlookError):
         super().__init__(
             "Outlook could not resolve recipient(s): " + ", ".join(names)
         )
+
+
+class ContactGroupNotFoundError(OutlookError):
+    """Raised when a contact group cannot be found."""
+    pass
 
 
 class EventNotFoundError(OutlookError):
@@ -2345,3 +2357,197 @@ def delete_event(
         raise
     except Exception as e:
         raise OutlookError(f"Failed to delete event: {e}")
+
+
+# =============================================================================
+# Contact groups (distribution lists)
+# =============================================================================
+
+
+def _iter_contacts_folders(namespace):
+    """Yield (store_name, contacts_folder) for every store that has a Contacts folder."""
+    for store in iter_com_collection(namespace.Stores):
+        try:
+            folder = store.GetDefaultFolder(OL_FOLDER_CONTACTS)
+        except Exception:
+            continue
+        yield str(store.DisplayName), folder
+
+
+def _member_email(recipient) -> str:
+    """Best-effort SMTP address of a distribution list member."""
+    try:
+        entry = recipient.AddressEntry
+        if entry is not None and entry.Type == "EX":
+            user = entry.GetExchangeUser()
+            if user is not None and user.PrimarySmtpAddress:
+                return str(user.PrimarySmtpAddress)
+    except Exception:
+        pass
+    return str(recipient.Address or "")
+
+
+def _group_members(item) -> list[GroupMember]:
+    members = []
+    for index in range(1, item.MemberCount + 1):
+        recipient = item.GetMember(index)
+        members.append(GroupMember(name=str(recipient.Name or ""), email=_member_email(recipient)))
+    return members
+
+
+def _group_model(item, store_name: str) -> ContactGroup:
+    return ContactGroup(name=str(item.DLName), store=store_name, members=_group_members(item))
+
+
+def _group_items(folder):
+    for item in iter_com_collection(folder.Items):
+        try:
+            if item.Class == OL_ITEM_CLASS_DIST_LIST:
+                yield item
+        except Exception:
+            continue
+
+
+def list_contact_groups(outlook_app) -> list[ContactGroup]:
+    """List contact groups on every store."""
+    namespace = get_namespace(outlook_app)
+    groups = []
+    for store_name, folder in _iter_contacts_folders(namespace):
+        for item in _group_items(folder):
+            groups.append(_group_model(item, store_name))
+    return groups
+
+
+def _find_contact_group(outlook_app, name: str, store: Optional[str] = None):
+    """
+    Find a contact group by name (case-insensitive), optionally on one store.
+
+    Returns:
+        Tuple of (DistListItem, store_name)
+
+    Raises:
+        ContactGroupNotFoundError: no group with that name
+        OutlookError: the name exists on several stores and no store was given
+    """
+    namespace = get_namespace(outlook_app)
+    matches = []
+    for store_name, folder in _iter_contacts_folders(namespace):
+        if store and store_name.lower() != store.lower():
+            continue
+        for item in _group_items(folder):
+            if str(item.DLName).lower() == name.lower():
+                matches.append((item, store_name))
+    if not matches:
+        where = f" on store '{store}'" if store else ""
+        raise ContactGroupNotFoundError(f"Contact group not found: {name}{where}")
+    if len(matches) > 1:
+        stores = ", ".join(store_name for _, store_name in matches)
+        raise OutlookError(
+            f"Contact group '{name}' exists on several stores ({stores}); use --store."
+        )
+    return matches[0]
+
+
+def get_contact_group(outlook_app, name: str, store: Optional[str] = None) -> ContactGroup:
+    """Get one contact group with its members."""
+    item, store_name = _find_contact_group(outlook_app, name, store)
+    return _group_model(item, store_name)
+
+
+def _resolve_member(namespace, address: str):
+    recipient = namespace.CreateRecipient(address)
+    recipient.Resolve()
+    if not recipient.Resolved:
+        raise UnresolvedRecipientsError([address])
+    return recipient
+
+
+def _add_members(namespace, item, members: list[str]) -> tuple[list[str], list[str]]:
+    existing = {m.email.lower() for m in _group_members(item)}
+    added, skipped = [], []
+    recipients = [(addr, _resolve_member(namespace, addr)) for addr in members]
+    for addr, recipient in recipients:
+        if addr.lower() in existing:
+            skipped.append(addr)
+            continue
+        item.AddMember(recipient)
+        existing.add(addr.lower())
+        added.append(addr)
+    return added, skipped
+
+
+def create_contact_group(
+    outlook_app,
+    name: str,
+    members: list[str] = None,
+    store: Optional[str] = None,
+) -> ContactGroup:
+    """
+    Create a contact group in the default Contacts folder (or the given store).
+
+    Raises:
+        OutlookError: if a group with the same name already exists there
+    """
+    namespace = get_namespace(outlook_app)
+    if store:
+        folders = [f for s, f in _iter_contacts_folders(namespace) if s.lower() == store.lower()]
+        if not folders:
+            raise OutlookError(f"Store not found or has no Contacts folder: {store}")
+        folder = folders[0]
+    else:
+        folder = namespace.GetDefaultFolder(OL_FOLDER_CONTACTS)
+    store_name = str(folder.Store.DisplayName)
+
+    for item in _group_items(folder):
+        if str(item.DLName).lower() == name.lower():
+            raise OutlookError(f"Contact group already exists on store '{store_name}': {name}")
+
+    try:
+        item = folder.Items.Add(OL_ITEM_TYPE_DIST_LIST)
+        item.DLName = name
+        _add_members(namespace, item, members or [])
+        item.Save()
+    except OutlookError:
+        raise
+    except Exception as e:
+        raise OutlookError(f"Failed to create contact group: {e}")
+    return _group_model(item, store_name)
+
+
+def add_group_members(
+    outlook_app, name: str, members: list[str], store: Optional[str] = None
+) -> tuple[ContactGroup, list[str], list[str]]:
+    """Add members to a group. Returns (group, added, skipped_already_present)."""
+    item, store_name = _find_contact_group(outlook_app, name, store)
+    added, skipped = _add_members(get_namespace(outlook_app), item, members)
+    if added:
+        item.Save()
+    return _group_model(item, store_name), added, skipped
+
+
+def remove_group_members(
+    outlook_app, name: str, members: list[str], store: Optional[str] = None
+) -> tuple[ContactGroup, list[str], list[str]]:
+    """Remove members from a group. Returns (group, removed, skipped_not_present)."""
+    item, store_name = _find_contact_group(outlook_app, name, store)
+    namespace = get_namespace(outlook_app)
+    current = {m.email.lower() for m in _group_members(item)}
+    removed, skipped = [], []
+    for addr in members:
+        if addr.lower() not in current:
+            skipped.append(addr)
+            continue
+        item.RemoveMember(_resolve_member(namespace, addr))
+        current.discard(addr.lower())
+        removed.append(addr)
+    if removed:
+        item.Save()
+    return _group_model(item, store_name), removed, skipped
+
+
+def delete_contact_group(outlook_app, name: str, store: Optional[str] = None) -> ContactGroup:
+    """Delete a contact group (moved to Deleted Items, not permanently removed)."""
+    item, store_name = _find_contact_group(outlook_app, name, store)
+    group = _group_model(item, store_name)
+    item.Delete()
+    return group

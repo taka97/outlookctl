@@ -674,3 +674,72 @@ class ErrorResult:
         if self.remediation:
             result["remediation"] = self.remediation
         return result
+
+
+# =============================================================================
+# Contact group models
+# =============================================================================
+
+
+@dataclass
+class GroupMember:
+    """A member of a contact group."""
+    name: str
+    email: str
+
+    def to_dict(self) -> dict:
+        return {"name": self.name, "email": self.email}
+
+
+@dataclass
+class ContactGroup:
+    """An Outlook contact group (distribution list)."""
+    name: str
+    store: str
+    members: list[GroupMember] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "store": self.store,
+            "member_count": len(self.members),
+            "members": [m.to_dict() for m in self.members],
+        }
+
+
+@dataclass
+class ContactGroupListResult:
+    """Result of listing contact groups."""
+    version: str = "1.0"
+    groups: list[ContactGroup] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "count": len(self.groups),
+            "groups": [g.to_dict() for g in self.groups],
+        }
+
+
+@dataclass
+class ContactGroupResult:
+    """Result of a contact group operation (show/create/add/remove/delete)."""
+    version: str = "1.0"
+    success: bool = True
+    message: Optional[str] = None
+    group: Optional[ContactGroup] = None
+    added: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        result = {"version": self.version, "success": self.success}
+        if self.message:
+            result["message"] = self.message
+        if self.group:
+            result["group"] = self.group.to_dict()
+        for key in ("added", "removed", "skipped"):
+            values = getattr(self, key)
+            if values:
+                result[key] = values
+        return result

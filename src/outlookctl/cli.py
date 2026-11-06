@@ -36,6 +36,8 @@ from .models import (
     EventUpdateResult,
     EventDeleteResult,
     EventId,
+    ContactGroupListResult,
+    ContactGroupResult,
 )
 from .outlook_com import (
     get_outlook_app,
@@ -72,6 +74,14 @@ from .outlook_com import (
     delete_event,
     EventNotFoundError,
     CalendarNotFoundError,
+    # Contact groups
+    ContactGroupNotFoundError,
+    list_contact_groups,
+    get_contact_group,
+    create_contact_group,
+    add_group_members,
+    remove_group_members,
+    delete_contact_group,
 )
 from .safety import (
     validate_send_confirmation,
@@ -146,6 +156,8 @@ def handle_outlook_errors(error_code: str) -> Callable:
                 output_error(str(e), "EVENT_NOT_FOUND")
             except CalendarNotFoundError as e:
                 output_error(str(e), "CALENDAR_NOT_FOUND")
+            except ContactGroupNotFoundError as e:
+                output_error(str(e), "GROUP_NOT_FOUND")
             except SendConfirmationError as e:
                 output_error(str(e), "CONFIRMATION_REQUIRED", "Use --confirm-send YES")
             except ValueError as e:
@@ -636,6 +648,85 @@ def cmd_forward(args: argparse.Namespace) -> None:
         unresolved=unresolved,
     )
     output_json(result.to_dict(), args.output)
+
+
+# =============================================================================
+# Contact Group Commands
+# =============================================================================
+
+
+def _parse_members(value: Optional[str]) -> list[str]:
+    members = normalize_recipients(value.split(",")) if value else []
+    if not members:
+        raise ValueError("--members needs at least one address.")
+    return members
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_list(args: argparse.Namespace) -> None:
+    """List contact groups on all stores."""
+    groups = list_contact_groups(get_outlook_app())
+    output_json(ContactGroupListResult(groups=groups).to_dict(), args.output)
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_show(args: argparse.Namespace) -> None:
+    """Show one contact group."""
+    group = get_contact_group(get_outlook_app(), args.name, args.store)
+    output_json(ContactGroupResult(group=group).to_dict(), args.output)
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_create(args: argparse.Namespace) -> None:
+    """Create a contact group."""
+    members = _parse_members(args.members) if args.members else []
+    group = create_contact_group(get_outlook_app(), args.name, members, args.store)
+    output_json(
+        ContactGroupResult(
+            message=f"Contact group created on store '{group.store}'",
+            group=group,
+            added=[m.email for m in group.members],
+        ).to_dict(),
+        args.output,
+    )
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_add(args: argparse.Namespace) -> None:
+    """Add members to a contact group."""
+    group, added, skipped = add_group_members(
+        get_outlook_app(), args.name, _parse_members(args.members), args.store
+    )
+    output_json(
+        ContactGroupResult(group=group, added=added, skipped=skipped).to_dict(),
+        args.output,
+    )
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_remove(args: argparse.Namespace) -> None:
+    """Remove members from a contact group."""
+    group, removed, skipped = remove_group_members(
+        get_outlook_app(), args.name, _parse_members(args.members), args.store
+    )
+    output_json(
+        ContactGroupResult(group=group, removed=removed, skipped=skipped).to_dict(),
+        args.output,
+    )
+
+
+@handle_outlook_errors("GROUP_ERROR")
+def cmd_group_delete(args: argparse.Namespace) -> None:
+    """Delete a contact group (moves it to Deleted Items)."""
+    if args.confirm != "YES":
+        raise ValueError("Deleting a contact group requires --confirm YES.")
+    group = delete_contact_group(get_outlook_app(), args.name, args.store)
+    output_json(
+        ContactGroupResult(
+            message="Contact group moved to Deleted Items", group=group
+        ).to_dict(),
+        args.output,
+    )
 
 
 # =============================================================================
@@ -1398,6 +1489,48 @@ def create_parser() -> argparse.ArgumentParser:
     forward_parser.set_defaults(func=cmd_forward)
 
     # =========================================================================
+    # Contacts subcommand (contact groups)
+    # =========================================================================
+    contacts_parser = subparsers.add_parser("contacts", help="Contact operations")
+    contacts_subparsers = contacts_parser.add_subparsers(
+        dest="contacts_command", help="Contact commands"
+    )
+    group_parser = contacts_subparsers.add_parser(
+        "group", help="Contact group (distribution list) operations"
+    )
+    group_subparsers = group_parser.add_subparsers(
+        dest="group_command", help="Contact group commands"
+    )
+
+    def add_group_command(name, help_text, func, needs_name=True, members=None, confirm=False):
+        p = group_subparsers.add_parser(name, help=help_text)
+        if needs_name:
+            p.add_argument("--name", required=True, help="Contact group name")
+            p.add_argument(
+                "--store",
+                help="Store display name (default: search all stores; "
+                     "for create: the default Contacts folder)",
+            )
+        if members == "required":
+            p.add_argument("--members", required=True, help="Member addresses (comma-separated)")
+        elif members == "optional":
+            p.add_argument("--members", help="Initial member addresses (comma-separated)")
+        if confirm:
+            p.add_argument("--confirm", help="Must be YES to delete")
+        p.add_argument(
+            "--output", choices=["json", "text"], default="json",
+            help="Output format (default: json)"
+        )
+        p.set_defaults(func=func)
+
+    add_group_command("list", "List contact groups on all stores", cmd_group_list, needs_name=False)
+    add_group_command("show", "Show a contact group and its members", cmd_group_show)
+    add_group_command("create", "Create a contact group", cmd_group_create, members="optional")
+    add_group_command("add", "Add members to a contact group", cmd_group_add, members="required")
+    add_group_command("remove", "Remove members from a contact group", cmd_group_remove, members="required")
+    add_group_command("delete", "Delete a contact group (to Deleted Items)", cmd_group_delete, confirm=True)
+
+    # =========================================================================
     # Calendar subcommand
     # =========================================================================
     calendar_parser = subparsers.add_parser(
@@ -1654,6 +1787,14 @@ def main() -> None:
     # Handle attachments subcommand
     if args.command == "attachments" and not args.attachments_command:
         parser.parse_args(["attachments", "-h"])
+        sys.exit(1)
+
+    # Handle contacts subcommand
+    if args.command == "contacts" and not args.contacts_command:
+        parser.parse_args(["contacts", "-h"])
+        sys.exit(1)
+    if args.command == "contacts" and not args.group_command:
+        parser.parse_args(["contacts", "group", "-h"])
         sys.exit(1)
 
     # Handle calendar subcommand
