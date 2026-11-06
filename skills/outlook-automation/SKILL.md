@@ -44,13 +44,24 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 | `list` | List messages from a folder |
 | `get` | Get a single message by ID |
 | `search` | Search messages with filters |
-| `draft` | Create a draft message (supports --reply-all) |
+| `draft` | Create a draft, reply or reply-all (`--reply-to-id/--reply-to-store [--reply-all]`) |
 | `send` | Send a draft or new message |
 | `move` | Move message to another folder |
 | `delete` | Delete a message (soft or permanent) |
 | `mark-read` | Mark message as read/unread |
 | `forward` | Create a forward draft |
 | `attachments save` | Save attachments to disk |
+
+### Contact Group Commands
+
+| Command | Description |
+|---------|-------------|
+| `contacts group list` | List contact groups on all stores |
+| `contacts group show` | Show a group and its members |
+| `contacts group create` | Create a group (default Contacts folder) |
+| `contacts group add` | Add members to a group |
+| `contacts group remove` | Remove members from a group |
+| `contacts group delete` | Delete a group (to Deleted Items, needs `--confirm YES`) |
 
 ### Calendar Commands
 
@@ -119,9 +130,14 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 ### Replying to Messages
 
 ```bash
-# Create reply draft
-uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cli draft --to "recipient@example.com" --subject "Re: Original" --body-text "Reply text" --reply-to-id "<entry_id>" --reply-to-store "<store_id>"
+# Reply (keeps "RE:" subject and the quoted thread)
+uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cli draft --body-text "Reply text" --reply-to-id "<entry_id>" --reply-to-store "<store_id>"
+
+# Reply-all, replacing To/CC (a contact group name works) and attaching a file
+uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cli draft --reply-all --reply-to-id "<entry_id>" --reply-to-store "<store_id>" --to "boss@example.com" --cc "Team Group" --attach "report.xlsx" --body-text "Reply text"
 ```
+
+On replies, `--to/--cc/--bcc` replace that recipient type; omit them to keep the recipients Outlook filled in. If a recipient cannot be resolved the draft is not saved (`UNRESOLVED_RECIPIENTS`); fix the name or pass `--allow-unresolved`.
 
 ### Saving Attachments
 

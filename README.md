@@ -97,7 +97,7 @@ uv run python -m outlookctl.cli calendar create --subject "Focus Time" --start "
 | `list` | List messages from a folder |
 | `get` | Get a single message by ID |
 | `search` | Search messages with filters |
-| `draft` | Create a draft message |
+| `draft` | Create a draft, reply or reply-all (keeps the quoted thread) |
 | `send` | Send a draft or new message |
 | `move` | Move message to another folder |
 | `delete` | Delete a message |
@@ -116,6 +116,38 @@ uv run python -m outlookctl.cli calendar create --subject "Focus Time" --start "
 | `calendar respond` | Accept/decline/tentative response |
 | `calendar update` | Update an existing event |
 | `calendar delete` | Delete/cancel an event |
+
+### Contact Group Commands
+
+| Command | Description |
+|---------|-------------|
+| `contacts group list` | List contact groups on all stores |
+| `contacts group show` | Show a group and its members |
+| `contacts group create` | Create a group (default Contacts folder) |
+| `contacts group add` | Add members to a group |
+| `contacts group remove` | Remove members from a group |
+| `contacts group delete` | Delete a group (to Deleted Items, needs `--confirm YES`) |
+
+### Recipients
+
+- Addresses are cleaned before use: wrapping quotes (`'a@b.com'`) and `Name <a@b.com>` wrappers are removed, duplicates dropped.
+- Contact group names (e.g. `--cc "Technical Team"`) are accepted wherever addresses are.
+- `draft`, `forward` and `send` (new message) stop with `UNRESOLVED_RECIPIENTS` when Outlook cannot resolve a recipient; pass `--allow-unresolved` to save anyway.
+
+### Replies
+
+```bash
+outlookctl draft --reply-to-id <id> --reply-to-store <store> --reply-all \
+  --to "boss@example.com" --cc "Technical Team" --attach report.xlsx \
+  --body-text "Dear Boss,
+Please find the report attached."
+```
+
+New text is inserted above the quoted original, which keeps its HTML formatting. On replies `--to/--cc/--bcc` **replace** that recipient type (omit them to keep what Outlook filled in), and the `RE:` subject is kept unless `--subject` is given.
+
+### Folders
+
+`--folder by-name:<name>` and `--folder by-path:<path>` search every store, starting with the store that holds the default Inbox. Prefix the path with a store name to pick a store: `by-path:me@example.com/Inbox/Projects`.
 
 See [CLI Reference](https://gmickel.github.io/outlookctl/cli.html) for full documentation.
 

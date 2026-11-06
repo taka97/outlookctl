@@ -28,7 +28,7 @@ uv run outlookctl list [OPTIONS]
 ```
 
 **Options:**
-- `--folder` - Folder: inbox|sent|drafts|by-name:<name>|by-path:<path> (default: inbox)
+- `--folder` - Folder: inbox|sent|drafts|by-name:<name>|by-path:<path> (default: inbox). `by-name`/`by-path` search all stores (default store first); `by-path:<store name>/Inbox/Sub` selects a store.
 - `--count` - Number of messages (default: 10)
 - `--unread-only` - Only unread messages
 - `--since` - ISO date filter (messages after)
@@ -80,10 +80,11 @@ uv run outlookctl search [OPTIONS]
 
 ### `outlookctl draft`
 
-Create a draft message.
+Create a draft message, or a reply / reply-all draft.
 
 ```bash
 uv run outlookctl draft [OPTIONS]
+uv run outlookctl draft --reply-to-id <id> --reply-to-store <store> [--reply-all] [OPTIONS]
 ```
 
 **Options:**
@@ -97,6 +98,11 @@ uv run outlookctl draft [OPTIONS]
 - `--reply-to-id` - Entry ID of message to reply to
 - `--reply-to-store` - Store ID of message to reply to
 - `--reply-all` - Create reply-all instead of reply
+- `--allow-unresolved` - Save even if Outlook cannot resolve some recipients
+
+**Recipients:** quotes and `Name <addr>` wrappers are stripped, duplicates removed; contact group names are accepted. Unresolved recipients stop the command with `UNRESOLVED_RECIPIENTS` unless `--allow-unresolved` is given.
+
+**Replies:** the body text/HTML is inserted above the quoted original (formatting kept). `--to/--cc/--bcc` replace that recipient type; omitted types keep Outlook's recipients. The `RE:` subject is kept unless `--subject` is given. `--attach` works for replies too.
 
 ---
 
@@ -117,6 +123,7 @@ uv run outlookctl send --to "email" --subject "..." --body-text "..." --unsafe-s
 - `--confirm-send-file` - Path to file containing "YES"
 - `--unsafe-send-new` - Required for direct send
 - `--log-body` - Include body in audit log
+- `--allow-unresolved` - Send a new message even if some recipients are unresolved
 
 ---
 
@@ -179,7 +186,8 @@ uv run outlookctl forward --id <entry_id> --store <store_id> --to "recipient@exa
 - `--to` - To recipients (required)
 - `--cc` - CC recipients
 - `--bcc` - BCC recipients
-- `--message` - Additional text to prepend
+- `--message` - Additional text inserted above the forwarded content (formatting kept)
+- `--allow-unresolved` - Save even if some recipients are unresolved
 
 ---
 
@@ -190,6 +198,25 @@ Save attachments from a message to disk.
 ```bash
 uv run outlookctl attachments save --id <entry_id> --store <store_id> --dest <directory>
 ```
+
+---
+
+## Contact Group Commands
+
+Manage Outlook contact groups (distribution lists). Groups are searched on every store's Contacts folder; use `--store "<store display name>"` when the same name exists on several stores.
+
+```bash
+uv run outlookctl contacts group list
+uv run outlookctl contacts group show   --name "Team"
+uv run outlookctl contacts group create --name "Team" [--members "a@x.com,b@x.com"] [--store "<store>"]
+uv run outlookctl contacts group add    --name "Team" --members "c@x.com"
+uv run outlookctl contacts group remove --name "Team" --members "a@x.com"
+uv run outlookctl contacts group delete --name "Team" --confirm YES
+```
+
+- `create` uses the default Contacts folder unless `--store` is given, and fails if the name already exists there.
+- `add`/`remove` report `added`/`removed` and `skipped` (already a member / not a member).
+- `delete` moves the group to Deleted Items and requires `--confirm YES`.
 
 ---
 
@@ -239,7 +266,7 @@ uv run outlookctl calendar create --subject <subject> --start <datetime> [OPTION
 - `--body` - Event description
 - `--attendees` - Required attendees (comma-separated)
 - `--optional-attendees` - Optional attendees
-- `--all-day` - Create as all-day event
+- `--all-day` - Create as all-day event (`--end` is the last day, inclusive)
 - `--reminder` - Reminder minutes (default: 15)
 - `--busy-status` - Show as: free, tentative, busy, out_of_office, working_elsewhere
 - `--teams-url` - Teams URL to embed

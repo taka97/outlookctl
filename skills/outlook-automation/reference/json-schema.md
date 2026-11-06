@@ -236,3 +236,56 @@ All commands return this format on error:
 ## Schema Versioning
 
 All outputs include a `version` field. Current version is `"1.0"`. Future versions will maintain backward compatibility where possible.
+
+
+## Unresolved recipients
+
+`draft` and `forward` results include `"unresolved": [...]` only when `--allow-unresolved` was used and some recipients could not be resolved. Without the flag the command fails with:
+
+```json
+{
+  "version": "1.0",
+  "success": false,
+  "error": "Outlook could not resolve recipient(s): Bad Name",
+  "error_code": "UNRESOLVED_RECIPIENTS",
+  "remediation": "Fix the address or contact group name, or pass --allow-unresolved to save anyway."
+}
+```
+
+## Contact groups
+
+`contacts group list`:
+
+```json
+{
+  "version": "1.0",
+  "count": 1,
+  "groups": [
+    {
+      "name": "Team",
+      "store": "me@example.com",
+      "member_count": 2,
+      "members": [
+        {"name": "a@x.com", "email": "a@x.com"},
+        {"name": "b@x.com", "email": "b@x.com"}
+      ]
+    }
+  ]
+}
+```
+
+`show`, `create`, `add`, `remove`, `delete`:
+
+```json
+{
+  "version": "1.0",
+  "success": true,
+  "message": "optional",
+  "group": {"name": "Team", "store": "me@example.com", "member_count": 2, "members": []},
+  "added": ["c@x.com"],
+  "removed": [],
+  "skipped": ["a@x.com"]
+}
+```
+
+`added`, `removed`, `skipped` and `message` are omitted when empty. Error codes: `GROUP_NOT_FOUND`, `GROUP_ERROR`, `VALIDATION_ERROR`.
