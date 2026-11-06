@@ -10,11 +10,17 @@ import os
 import sys
 import subprocess
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional, Iterator, Any
 
-from .utils import insert_into_html_body, split_store_prefix, text_to_html_fragment
+from .utils import (
+    all_day_range,
+    insert_into_html_body,
+    split_store_prefix,
+    text_to_html_fragment,
+    to_com_time,
+)
 from .models import (
     ContactGroup,
     GroupMember,
@@ -2103,15 +2109,11 @@ def create_event(
         # Set times
         if all_day:
             appt.AllDayEvent = True
-            appt.Start = start.date()
-            if end:
-                appt.End = end.date()
-            else:
-                appt.End = start.date()
+            appt.Start, appt.End = all_day_range(start, end)
         else:
-            appt.Start = start
+            appt.Start = to_com_time(start)
             if end:
-                appt.End = end
+                appt.End = to_com_time(end)
             else:
                 appt.Duration = duration
 
@@ -2170,7 +2172,10 @@ def create_event(
                 pattern.DayOfMonth = recurrence["day_of_month"]
 
             if "end_date" in recurrence:
-                pattern.PatternEndDate = recurrence["end_date"]
+                end_date = recurrence["end_date"]
+                if isinstance(end_date, (date, datetime)):
+                    end_date = to_com_time(end_date)
+                pattern.PatternEndDate = end_date
                 pattern.NoEndDate = False
             elif "occurrences" in recurrence:
                 pattern.Occurrences = recurrence["occurrences"]
@@ -2300,11 +2305,11 @@ def update_event(
             updated_fields.append("subject")
 
         if start is not None:
-            appt.Start = start
+            appt.Start = to_com_time(start)
             updated_fields.append("start")
 
         if end is not None:
-            appt.End = end
+            appt.End = to_com_time(end)
             updated_fields.append("end")
         elif duration is not None:
             appt.Duration = duration

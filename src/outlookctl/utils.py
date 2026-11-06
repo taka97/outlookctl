@@ -4,6 +4,7 @@ Pure helper functions (no COM dependency) so they can be unit tested anywhere.
 
 import html
 import re
+from datetime import date, datetime, time, timedelta, timezone
 
 _ANGLE_ADDRESS = re.compile(r"<\s*([^<>\s]+@[^<>\s]+)\s*>\s*$")
 _QUOTE_CHARS = ("'", '"')
@@ -84,3 +85,42 @@ def split_store_prefix(parts: list[str], store_names: list[str]) -> tuple:
             if parts[0].lower() == name.lower():
                 return name, list(parts[1:])
     return None, list(parts)
+
+
+def to_com_time(value) -> datetime:
+    """
+    Convert a local date/datetime into the value to assign to an Outlook COM
+    date property (AppointmentItem.Start/End, ...).
+
+    pywin32 treats a naive datetime as UTC and Outlook then shifts it by the
+    machine's UTC offset, so "08:30" was stored as 01:30 on a UTC+7 machine.
+    Labelling the local wall-clock time as UTC makes Outlook store exactly the
+    time the user typed (verified on Outlook Classic: Start == typed time,
+    StartUTC == typed time - offset).
+
+    - date            -> midnight of that day
+    - naive datetime  -> treated as local wall-clock time
+    - aware datetime  -> converted to local time first
+    """
+    if not isinstance(value, datetime):
+        value = datetime.combine(value, time.min)
+    elif value.tzinfo is not None:
+        value = value.astimezone().replace(tzinfo=None)
+    return value.replace(tzinfo=timezone.utc)
+
+
+def all_day_range(start, end=None) -> tuple[datetime, datetime]:
+    """
+    Start/End values for an all-day event.
+
+    ``end`` is the last day of the event (inclusive); Outlook stores the
+    exclusive end, i.e. midnight after the last day.
+    """
+    first_day = start.date() if isinstance(start, datetime) else start
+    if end is None:
+        last_day = first_day
+    else:
+        last_day = end.date() if isinstance(end, datetime) else end
+    if last_day < first_day:
+        raise ValueError("End date must not be before start date.")
+    return to_com_time(first_day), to_com_time(last_day + timedelta(days=1))
