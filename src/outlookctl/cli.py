@@ -90,7 +90,7 @@ from .safety import (
     SendConfirmationError,
 )
 from .audit import log_send_operation, log_draft_operation
-from .utils import normalize_recipients
+from .utils import normalize_recipients, to_local_iso
 
 
 def _force_utf8_stdio() -> None:
@@ -924,7 +924,7 @@ def cmd_calendar_create(args: argparse.Namespace) -> None:
             id=EventId(entry_id=entry_id, store_id=store_id),
             saved_to="Calendar",
             subject=args.subject,
-            start=start.isoformat(),
+            start=to_local_iso(start),
             attendees=(attendees or []) + (optional_attendees or []),
             is_draft=has_attendees and not send_now,
         )

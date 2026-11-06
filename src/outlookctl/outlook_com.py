@@ -17,6 +17,7 @@ from typing import Optional, Iterator, Any
 from .utils import (
     all_day_range,
     insert_into_html_body,
+    to_local_iso,
     split_store_prefix,
     text_to_html_fragment,
     to_com_time,
@@ -528,10 +529,12 @@ def extract_recipients(recipients) -> list[str]:
 
 
 def format_datetime(dt) -> str:
-    """Format a COM datetime to ISO format string."""
+    """Format a COM datetime as ISO 8601 with the local UTC offset."""
     if dt is None:
         return ""
     try:
+        if isinstance(dt, datetime):
+            return to_local_iso(dt)
         if hasattr(dt, "isoformat"):
             return dt.isoformat()
         # Convert from COM date

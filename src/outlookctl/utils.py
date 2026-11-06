@@ -124,3 +124,22 @@ def all_day_range(start, end=None) -> tuple[datetime, datetime]:
     if last_day < first_day:
         raise ValueError("End date must not be before start date.")
     return to_com_time(first_day), to_com_time(last_day + timedelta(days=1))
+
+
+def to_local_iso(value) -> str:
+    """
+    ISO 8601 string with the machine's real UTC offset for a COM date value.
+
+    pywin32 returns Outlook dates (ReceivedTime, Start, End, ...) as the local
+    wall-clock time labelled UTC (``09:00+00:00`` for 09:00 in UTC+7). The
+    label is dropped and the local offset attached, giving ``09:00+07:00``.
+    Naive datetimes are treated as local time. Dates outside the platform's
+    range (e.g. Outlook's 4501-01-01 "no date") are returned without offset.
+    """
+    if not isinstance(value, datetime):
+        return value.isoformat()
+    wall_clock = value.replace(tzinfo=None)
+    try:
+        return wall_clock.astimezone().isoformat()
+    except (OverflowError, OSError, ValueError):
+        return wall_clock.isoformat()

@@ -46,7 +46,7 @@ Output of `outlookctl list`:
         "entry_id": "00000000...",
         "store_id": "00000000..."
       },
-      "received_at": "2025-01-15T09:30:00",
+      "received_at": "2025-01-15T09:30:00+07:00",
       "subject": "Meeting Tomorrow",
       "from": {
         "name": "Jane Smith",
@@ -95,7 +95,7 @@ Output of `outlookctl get`:
     "entry_id": "00000000...",
     "store_id": "00000000..."
   },
-  "received_at": "2025-01-15T09:30:00",
+  "received_at": "2025-01-15T09:30:00+07:00",
   "subject": "Meeting Tomorrow",
   "from": {
     "name": "Jane Smith",
@@ -289,3 +289,7 @@ All outputs include a `version` field. Current version is `"1.0"`. Future versio
 ```
 
 `added`, `removed`, `skipped` and `message` are omitted when empty. Error codes: `GROUP_NOT_FOUND`, `GROUP_ERROR`, `VALIDATION_ERROR`.
+
+## Timestamps
+
+Outlook dates (`received_at`, event `start`/`end`, recurrence `end_date`) are ISO 8601 local time with the machine's real UTC offset, e.g. `"2026-11-11T09:00:00+07:00"` for 09:00 in Vietnam.

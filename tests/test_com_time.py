@@ -41,3 +41,31 @@ class TestAllDayRange:
     def test_end_before_start_rejected(self):
         with pytest.raises(ValueError):
             all_day_range(date(2026, 11, 21), date(2026, 11, 20))
+
+
+class TestToLocalIso:
+    def test_utc_labelled_wall_clock_gets_local_offset(self):
+        from outlookctl.utils import to_local_iso
+        value = datetime(2026, 11, 11, 9, 0, tzinfo=timezone.utc)
+        expected = datetime(2026, 11, 11, 9, 0).astimezone().isoformat()
+        assert to_local_iso(value) == expected
+        assert to_local_iso(value).startswith("2026-11-11T09:00:00")
+
+    def test_naive_treated_as_local(self):
+        from outlookctl.utils import to_local_iso
+        value = datetime(2026, 11, 11, 9, 0)
+        assert to_local_iso(value) == value.astimezone().isoformat()
+
+    def test_round_trip_with_to_com_time(self):
+        from outlookctl.utils import to_local_iso
+        typed = datetime(2026, 11, 20, 8, 30)
+        assert to_local_iso(to_com_time(typed)) == typed.astimezone().isoformat()
+
+    def test_far_future_no_date_value(self):
+        from outlookctl.utils import to_local_iso
+        result = to_local_iso(datetime(4501, 1, 1, tzinfo=timezone.utc))
+        assert result.startswith("4501-01-01T00:00:00")
+
+    def test_plain_date(self):
+        from outlookctl.utils import to_local_iso
+        assert to_local_iso(date(2026, 11, 21)) == "2026-11-21"
