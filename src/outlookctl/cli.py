@@ -59,7 +59,7 @@ from .outlook_com import (
     delete_message,
     mark_message_read,
     create_forward,
-    create_reply_all,
+    create_reply,
     # Calendar functions
     list_events,
     list_all_calendars,
@@ -315,21 +315,31 @@ def cmd_draft(args: argparse.Namespace) -> None:
     try:
         to_list, cc_list, bcc_list = parse_recipient_args(args.to, args.cc, args.bcc)
 
-        # For reply-all, we don't require recipients (they come from original)
-        if not args.reply_all:
+        is_reply = bool(args.reply_to_id or args.reply_to_store)
+        if is_reply and not (args.reply_to_id and args.reply_to_store):
+            raise ValueError("--reply-to-id and --reply-to-store must be used together.")
+        if args.reply_all and not is_reply:
+            raise ValueError("--reply-all requires --reply-to-id and --reply-to-store.")
+        # Replies get their recipients from the original message
+        if not is_reply:
             check_recipients(to_list, cc_list, bcc_list)
 
         outlook = get_outlook_app()
 
-        # Handle reply-all differently
-        unresolved: list[str] = []
-        if args.reply_all and args.reply_to_id and args.reply_to_store:
-            entry_id, store_id = create_reply_all(
+        if is_reply:
+            entry_id, store_id, unresolved = create_reply(
                 outlook,
                 entry_id=args.reply_to_id,
                 store_id=args.reply_to_store,
+                reply_all=args.reply_all,
+                to=to_list,
+                cc=cc_list,
+                bcc=bcc_list,
+                subject=args.subject,
                 body_text=args.body_text,
                 body_html=args.body_html,
+                attachments=args.attach or [],
+                allow_unresolved=args.allow_unresolved,
             )
         else:
             entry_id, store_id, unresolved = create_draft(
@@ -341,8 +351,6 @@ def cmd_draft(args: argparse.Namespace) -> None:
                 body_text=args.body_text,
                 body_html=args.body_html,
                 attachments=args.attach or [],
-                reply_to_entry_id=args.reply_to_id,
-                reply_to_store_id=args.reply_to_store,
                 allow_unresolved=args.allow_unresolved,
             )
 

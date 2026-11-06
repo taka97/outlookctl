@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Iterator, Any
 
+from .utils import insert_into_html_body, text_to_html_fragment
 from .models import (
     MessageId,
     EmailAddress,
@@ -869,6 +870,47 @@ def search_messages(
             continue
 
 
+OL_FORMAT_PLAIN = 1
+
+
+def prepend_body(mail, body_text: str = None, body_html: str = None) -> None:
+    """
+    Put new content above the existing body without losing its formatting.
+
+    Used for replies and forwards: the quoted original stays intact. HTML/RTF
+    items get an HTML fragment inserted after the <body> tag; plain-text items
+    get the text prepended.
+    """
+    if not body_text and not body_html:
+        return
+    if mail.BodyFormat == OL_FORMAT_PLAIN and body_text and not body_html:
+        mail.Body = body_text + "\n\n" + (mail.Body or "")
+        return
+    fragment = body_html or text_to_html_fragment(body_text)
+    mail.HTMLBody = insert_into_html_body(mail.HTMLBody, fragment)
+
+
+def replace_recipients(mail, recipient_type: int, addresses: list[str]) -> None:
+    """Replace all recipients of one type (To/CC/BCC) with the given addresses."""
+    recipients = mail.Recipients
+    for index in range(recipients.Count, 0, -1):
+        if recipients.Item(index).Type == recipient_type:
+            recipients.Remove(index)
+    for addr in addresses:
+        recipients.Add(addr).Type = recipient_type
+
+
+def check_attachments_exist(attachments: list[str]) -> list[Path]:
+    """Return absolute paths, raising OutlookError if any file is missing."""
+    paths = []
+    for att_path in attachments or []:
+        path = Path(att_path)
+        if not path.exists():
+            raise OutlookError(f"Attachment not found: {att_path}")
+        paths.append(path.absolute())
+    return paths
+
+
 def add_recipients(mail, to=None, cc=None, bcc=None) -> None:
     """Add To/CC/BCC recipients to a mail item."""
     for recipients, recipient_type in (
@@ -919,12 +961,10 @@ def create_draft(
     body_text: str = None,
     body_html: str = None,
     attachments: list[str] = None,
-    reply_to_entry_id: str = None,
-    reply_to_store_id: str = None,
     allow_unresolved: bool = False,
 ) -> tuple[str, str, list[str]]:
     """
-    Create a draft email.
+    Create a new draft email (use create_reply for replies).
 
     Args:
         outlook_app: Outlook Application COM object
@@ -935,8 +975,6 @@ def create_draft(
         body_text: Plain text body
         body_html: HTML body (takes precedence over body_text)
         attachments: List of file paths to attach
-        reply_to_entry_id: Entry ID of message to reply to
-        reply_to_store_id: Store ID of message to reply to
         allow_unresolved: Save the draft even if some recipients are unresolved
 
     Returns:
@@ -950,37 +988,22 @@ def create_draft(
     attachments = attachments or []
 
     try:
-        # Create the mail item
-        if reply_to_entry_id and reply_to_store_id:
-            # Get the original message and create a reply
-            original = get_message_by_id(outlook_app, reply_to_entry_id, reply_to_store_id)
-            mail = original.Reply()
-            # Clear auto-generated body for reply
-            if body_html:
-                mail.HTMLBody = body_html
-            elif body_text:
-                mail.Body = body_text
-        else:
-            mail = outlook_app.CreateItem(0)  # olMailItem
+        attachment_paths = check_attachments_exist(attachments)
+        mail = outlook_app.CreateItem(0)  # olMailItem
 
-            # Set body
-            if body_html:
-                mail.HTMLBody = body_html
-            elif body_text:
-                mail.Body = body_text
+        # Set body
+        if body_html:
+            mail.HTMLBody = body_html
+        elif body_text:
+            mail.Body = body_text
 
-        # Set subject
         mail.Subject = subject
 
         add_recipients(mail, to, cc, bcc)
         unresolved = ensure_recipients_resolved(mail, allow_unresolved)
 
-        # Add attachments
-        for att_path in attachments:
-            path = Path(att_path)
-            if not path.exists():
-                raise OutlookError(f"Attachment not found: {att_path}")
-            mail.Attachments.Add(str(path.absolute()))
+        for path in attachment_paths:
+            mail.Attachments.Add(str(path))
 
         # Save as draft
         mail.Save()
@@ -1286,9 +1309,8 @@ def create_forward(
         add_recipients(forward, to, cc, bcc)
         unresolved = ensure_recipients_resolved(forward, allow_unresolved)
 
-        # Add additional text if provided
-        if additional_text:
-            forward.Body = additional_text + "\n\n" + forward.Body
+        # Add additional text above the forwarded content
+        prepend_body(forward, body_text=additional_text)
 
         forward.Save()
 
@@ -1300,47 +1322,76 @@ def create_forward(
         raise OutlookError(f"Failed to create forward: {e}")
 
 
-def create_reply_all(
+def create_reply(
     outlook_app,
     entry_id: str,
     store_id: str,
+    reply_all: bool = False,
+    to: list[str] = None,
+    cc: list[str] = None,
+    bcc: list[str] = None,
+    subject: str = None,
     body_text: str = None,
     body_html: str = None,
-) -> tuple[str, str]:
+    attachments: list[str] = None,
+    allow_unresolved: bool = False,
+) -> tuple[str, str, list[str]]:
     """
-    Create a reply-all draft for a message.
+    Create a reply or reply-all draft for a message.
+
+    The new body is inserted above the quoted original, which keeps its
+    formatting. Recipients filled in by Outlook are kept unless a list is
+    given for that type: a non-empty to/cc/bcc list replaces all recipients
+    of that type. The subject ("RE: ...") is kept unless subject is given.
 
     Args:
         outlook_app: Outlook Application COM object
         entry_id: Original message entry ID
         store_id: Original message store ID
-        body_text: Plain text body for reply
-        body_html: HTML body for reply (takes precedence)
+        reply_all: Use ReplyAll instead of Reply
+        to/cc/bcc: Replacement recipients for that type (empty = keep)
+        subject: Override subject (None/empty = keep Outlook's subject)
+        body_text: Plain text to insert above the quote
+        body_html: HTML fragment to insert above the quote (takes precedence)
+        attachments: File paths to attach
+        allow_unresolved: Save even if some recipients are unresolved
 
     Returns:
-        Tuple of (entry_id, store_id) of the reply-all draft
+        Tuple of (entry_id, store_id, unresolved_names) of the reply draft
 
     Raises:
-        OutlookError: If reply-all creation fails
+        OutlookError: If reply creation fails
     """
     try:
+        attachment_paths = check_attachments_exist(attachments)
         original = get_message_by_id(outlook_app, entry_id, store_id)
-        reply = original.ReplyAll()
+        reply = original.ReplyAll() if reply_all else original.Reply()
 
-        # Set body
-        if body_html:
-            reply.HTMLBody = body_html + reply.HTMLBody
-        elif body_text:
-            reply.Body = body_text + "\n\n" + reply.Body
+        for addresses, recipient_type in (
+            (to, OL_RECIPIENT_TO),
+            (cc, OL_RECIPIENT_CC),
+            (bcc, OL_RECIPIENT_BCC),
+        ):
+            if addresses:
+                replace_recipients(reply, recipient_type, addresses)
+
+        prepend_body(reply, body_text=body_text, body_html=body_html)
+        if subject:
+            reply.Subject = subject
+
+        unresolved = ensure_recipients_resolved(reply, allow_unresolved)
+
+        for path in attachment_paths:
+            reply.Attachments.Add(str(path))
 
         reply.Save()
 
-        return reply.EntryID, reply.Parent.StoreID
+        return reply.EntryID, reply.Parent.StoreID, unresolved
 
-    except MessageNotFoundError:
+    except OutlookError:
         raise
     except Exception as e:
-        raise OutlookError(f"Failed to create reply-all: {e}")
+        raise OutlookError(f"Failed to create reply: {e}")
 
 
 def run_doctor() -> DoctorResult:
