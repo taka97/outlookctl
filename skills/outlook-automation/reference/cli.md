@@ -7,6 +7,10 @@ Complete reference for all `outlookctl` commands and options.
 All commands support:
 - `--output json|text` - Output format (default: json)
 
+## Stores
+
+Commands work on the default store (the account holding the default Inbox). `--store "<display name>"` picks one store where supported; `--all-stores` uses every store, default first. A `by-path:<store name>/...` folder always uses that store. Note: on `get`, `move`, `delete`, `mark-read`, `forward` and the calendar event commands, `--store` is the item's store **ID**, not a display name.
+
 ## Email Commands
 
 ### `outlookctl doctor`
@@ -28,13 +32,32 @@ uv run outlookctl list [OPTIONS]
 ```
 
 **Options:**
-- `--folder` - Folder: inbox|sent|drafts|by-name:<name>|by-path:<path> (default: inbox). `by-name`/`by-path` search all stores (default store first); `by-path:<store name>/Inbox/Sub` selects a store.
+- `--folder` - Folder: inbox|sent|drafts|by-name:<name>|by-path:<path> (default: inbox). `by-name`/`by-path` look in the default store; `by-path:<store name>/Inbox/Sub` selects a store.
+- `--all-stores` - `by-name`/`by-path` look in every store (default store first)
 - `--count` - Number of messages (default: 10)
 - `--unread-only` - Only unread messages
 - `--since` - ISO date filter (messages after)
 - `--until` - ISO date filter (messages before)
 - `--include-body-snippet` - Include body preview
 - `--body-snippet-chars` - Max chars for snippet (default: 200)
+
+---
+
+### `outlookctl folders`
+
+List the folder tree of the default store (the one holding the default Inbox). Mail folders only by default.
+
+```bash
+uv run outlookctl folders [OPTIONS]
+```
+
+**Options:**
+- `--store` - List this store instead (display name, e.g. `me@example.com`); unknown name gives `FOLDER_NOT_FOUND`
+- `--all-stores` - List every store, default store first (cannot be combined with `--store`)
+- `--type` - mail|calendar|contacts|tasks|journal|notes|post|all (default: mail). Non-matching folders are still walked, so their mail subfolders are listed.
+- `--depth` - Deepest level to list (1 = top-level folders only; default: all levels)
+
+Each entry's `folder_spec` (e.g. `by-path:me@example.com/Inbox/Projects`) can be passed to `list/search --folder` or `move --dest`.
 
 ---
 
@@ -63,6 +86,7 @@ uv run outlookctl search [OPTIONS]
 
 **Options:**
 - `--folder` - Folder to search (default: inbox)
+- `--all-stores` - `by-name`/`by-path` look in every store
 - `--query` - Free text search (subject/body)
 - `--from` - Filter by sender
 - `--to` - Filter by To recipient
@@ -139,6 +163,7 @@ uv run outlookctl move --id <entry_id> --store <store_id> --dest <folder>
 - `--id` - Message entry ID (required)
 - `--store` - Message store ID (required)
 - `--dest` - Destination folder (required)
+- `--all-stores` - `by-name`/`by-path` destination looked up in every store
 
 ---
 
@@ -203,7 +228,7 @@ uv run outlookctl attachments save --id <entry_id> --store <store_id> --dest <di
 
 ## Contact Group Commands
 
-Manage Outlook contact groups (distribution lists). Groups are searched on every store's Contacts folder; use `--store "<store display name>"` when the same name exists on several stores.
+Manage Outlook contact groups (distribution lists). Groups are looked up in the default store's Contacts folder; use `--store "<store display name>"` for another store or `--all-stores` (not for `create`) for every store.
 
 ```bash
 uv run outlookctl contacts group list
@@ -234,7 +259,9 @@ uv run outlookctl calendar list [OPTIONS]
 - `--start` - Start date (default: today)
 - `--end` - End date (overrides --days)
 - `--days` - Number of days (default: 7)
-- `--calendar` - Email for shared calendar
+- `--calendar` - Calendar name, `by-name:Name`, or email for shared calendar
+- `--all` - All calendars of the default store, merged
+- `--all-stores` - `--calendar <name>` and `--all` look in every store
 - `--count` - Maximum events (default: 100)
 
 ---

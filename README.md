@@ -95,6 +95,7 @@ uv run python -m outlookctl.cli calendar create --subject "Focus Time" --start "
 |---------|-------------|
 | `doctor` | Validate environment and prerequisites |
 | `list` | List messages from a folder |
+| `folders` | List the folder tree of the default store (`--all-stores` for every store) |
 | `get` | Get a single message by ID |
 | `search` | Search messages with filters |
 | `draft` | Create a draft, reply or reply-all (keeps the quoted thread) |
@@ -121,7 +122,7 @@ uv run python -m outlookctl.cli calendar create --subject "Focus Time" --start "
 
 | Command | Description |
 |---------|-------------|
-| `contacts group list` | List contact groups on all stores |
+| `contacts group list` | List contact groups (default store; `--all-stores` for every store) |
 | `contacts group show` | Show a group and its members |
 | `contacts group create` | Create a group (default Contacts folder) |
 | `contacts group add` | Add members to a group |
@@ -147,7 +148,19 @@ New text is inserted above the quoted original, which keeps its HTML formatting.
 
 ### Folders
 
-`--folder by-name:<name>` and `--folder by-path:<path>` search every store, starting with the store that holds the default Inbox. Prefix the path with a store name to pick a store: `by-path:me@example.com/Inbox/Projects`.
+`outlookctl folders` lists the folder tree of the default store, the one holding the default Inbox (mail folders only by default; `--type all|calendar|contacts|...`, `--store <name>` or `--all-stores`, `--depth N`). Each entry has a `folder_spec` you can pass straight to `--folder`.
+
+`--folder by-name:<name>` and `--folder by-path:<path>` look in the default store; add `--all-stores` to look in every store. Prefix the path with a store name to pick a store: `by-path:me@example.com/Inbox/Projects`.
+
+### Stores
+
+Commands work on the **default store** (the account that holds the default Inbox) unless told otherwise:
+
+- `--store "<store display name>"` picks one store (`folders`, `calendar calendars`, `contacts group ...`).
+- `--all-stores` uses every store, default store first (`folders`, `list`/`search`/`move` with `by-name:`/`by-path:`, `calendar calendars`, `calendar list --calendar/--all`, `contacts group list|show|add|remove|delete`).
+- A `by-path:` that starts with a store name always uses that store: `by-path:me@example.com/Inbox/Projects`.
+
+Lookups that fail in the default store say so in the error and suggest `--all-stores`.
 
 See [CLI Reference](https://gmickel.github.io/outlookctl/cli.html) for full documentation.
 

@@ -16,7 +16,9 @@ from typing import Optional, Iterator, Any
 
 from .utils import (
     all_day_range,
+    folder_item_type,
     insert_into_html_body,
+    select_stores,
     to_local_iso,
     split_store_prefix,
     text_to_html_fragment,
@@ -28,6 +30,7 @@ from .models import (
     MessageId,
     EmailAddress,
     FolderInfo,
+    FolderEntry,
     MessageSummary,
     MessageDetail,
     DoctorCheck,
@@ -332,6 +335,26 @@ def _store_roots_default_first(namespace) -> list[tuple[str, Any]]:
     return [(name, root_folder) for name, root_folder, _ in roots]
 
 
+def _scoped_store_roots(namespace, store: Optional[str] = None, all_stores: bool = False):
+    """
+    (store_name, root_folder) for the stores a command works on: the default
+    store, the named store, or every store (default first).
+
+    Raises:
+        FolderNotFoundError: If the store name is unknown
+    """
+    roots = _store_roots_default_first(namespace)
+    try:
+        indexes = select_stores([name for name, _ in roots], store, all_stores)
+    except LookupError:
+        raise FolderNotFoundError(f"Store not found: {store}")
+    return [roots[i] for i in indexes]
+
+
+def _scope_hint(all_stores: bool, store: Optional[str] = None) -> str:
+    return "" if (all_stores or store) else " (searched the default store only; use --all-stores to search every store)"
+
+
 def _find_child(parent, name: str):
     for folder in iter_com_collection(parent.Folders):
         if str(folder.Name).lower() == name.lower():
@@ -352,9 +375,10 @@ def _search_folder_tree(parent, name: str):
     return None
 
 
-def get_folder_by_name(outlook_app, folder_name: str):
+def get_folder_by_name(outlook_app, folder_name: str, all_stores: bool = False):
     """
-    Find a folder by name in any store (default store first).
+    Find a folder by name in the default store, or in every store
+    (default store first) when ``all_stores`` is set.
 
     If several stores contain a folder with that name, the one in the default
     store wins and a warning listing the others is written to stderr.
@@ -364,7 +388,7 @@ def get_folder_by_name(outlook_app, folder_name: str):
     """
     namespace = get_namespace(outlook_app)
     matches = []
-    for _store_name, root_folder in _store_roots_default_first(namespace):
+    for _store_name, root_folder in _scoped_store_roots(namespace, all_stores=all_stores):
         try:
             found = _search_folder_tree(root_folder, folder_name)
         except Exception:
@@ -373,7 +397,7 @@ def get_folder_by_name(outlook_app, folder_name: str):
             matches.append(found)
 
     if not matches:
-        raise FolderNotFoundError(f"Folder not found: {folder_name}")
+        raise FolderNotFoundError(f"Folder not found: {folder_name}{_scope_hint(all_stores)}")
     if len(matches) > 1:
         others = ", ".join(str(f.FolderPath) for f in matches[1:])
         print(
@@ -384,12 +408,13 @@ def get_folder_by_name(outlook_app, folder_name: str):
     return matches[0]
 
 
-def get_folder_by_path(outlook_app, folder_path: str):
+def get_folder_by_path(outlook_app, folder_path: str, all_stores: bool = False):
     """
     Get a folder by path, e.g. "Inbox/Subfolder" or "store name/Inbox/Subfolder".
 
     A leading segment that matches a store display name selects that store.
-    Otherwise the path is tried on the default store first, then on the others.
+    Otherwise the path is looked up in the default store, or in every store
+    (default store first) when ``all_stores`` is set.
 
     Raises:
         FolderNotFoundError: If folder not found
@@ -398,10 +423,12 @@ def get_folder_by_path(outlook_app, folder_path: str):
     roots = _store_roots_default_first(namespace)
     parts = [part for part in folder_path.strip("/").split("/") if part]
     store_name, rest = split_store_prefix(parts, [name for name, _ in roots])
+    if store_name is not None:
+        roots = [(name, r) for name, r in roots if name.lower() == store_name.lower()]
+    elif not all_stores:
+        roots = roots[:1]
 
     for name, root_folder in roots:
-        if store_name is not None and name.lower() != store_name.lower():
-            continue
         current = root_folder
         for part in rest:
             try:
@@ -413,10 +440,76 @@ def get_folder_by_path(outlook_app, folder_path: str):
         if current is not None:
             return current
 
-    raise FolderNotFoundError(f"Folder path not found: {folder_path}")
+    raise FolderNotFoundError(
+        f"Folder path not found: {folder_path}{_scope_hint(all_stores, store_name)}"
+    )
 
 
-def resolve_folder(outlook_app, folder_spec: str):
+def _safe_count(getter) -> Optional[int]:
+    try:
+        return int(getter())
+    except Exception:
+        return None
+
+
+def _walk_folders(folder, store_name: str, path: str, depth: int, max_depth, out: list) -> None:
+    try:
+        children = list(iter_com_collection(folder.Folders))
+    except Exception:
+        children = []
+    for child in children:
+        try:
+            name = str(child.Name)
+            child_path = f"{path}/{name}" if path else name
+            out.append(FolderEntry(
+                name=name,
+                path=child_path,
+                store=store_name,
+                item_type=folder_item_type(getattr(child, "DefaultItemType", None)),
+                depth=depth,
+                item_count=_safe_count(lambda: child.Items.Count),
+                unread_count=_safe_count(lambda: child.UnReadItemCount),
+                subfolder_count=_safe_count(lambda: child.Folders.Count) or 0,
+            ))
+        except Exception:
+            continue  # a broken folder must not stop the listing
+        if max_depth is None or depth < max_depth:
+            _walk_folders(child, store_name, child_path, depth + 1, max_depth, out)
+
+
+def list_folders(
+    outlook_app,
+    store: Optional[str] = None,
+    item_type: Optional[str] = "mail",
+    max_depth: Optional[int] = None,
+    all_stores: bool = False,
+) -> list[FolderEntry]:
+    """
+    List the folder tree of the default store (the one holding the default
+    Inbox), of a named store, or of every store (default store first).
+
+    Args:
+        store: Only this store (display name, case-insensitive)
+        all_stores: Every store; ignored when ``store`` is given
+        item_type: Only folders of this type ("mail", "calendar", ...);
+            None lists every folder. Filtering does not stop the walk, so a
+            mail folder below a non-mail folder is still found.
+        max_depth: Deepest level to list (1 = top-level folders only)
+
+    Raises:
+        FolderNotFoundError: If the store name is unknown
+    """
+    roots = _scoped_store_roots(get_namespace(outlook_app), store, all_stores)
+
+    entries: list[FolderEntry] = []
+    for store_name, root_folder in roots:
+        _walk_folders(root_folder, store_name, "", 1, max_depth, entries)
+    if item_type is not None:
+        entries = [e for e in entries if e.item_type == item_type]
+    return entries
+
+
+def resolve_folder(outlook_app, folder_spec: str, all_stores: bool = False):
     """
     Resolve a folder specification to a folder object.
 
@@ -426,6 +519,7 @@ def resolve_folder(outlook_app, folder_spec: str):
             - "inbox", "sent", "drafts", etc. (default folders)
             - "by-name:<name>" (search by name)
             - "by-path:<path>" (search by path)
+        all_stores: by-name/by-path look in every store, not only the default
 
     Returns:
         Tuple of (Folder COM object, FolderInfo)
@@ -434,12 +528,12 @@ def resolve_folder(outlook_app, folder_spec: str):
 
     if folder_spec_lower.startswith("by-name:"):
         name = folder_spec[8:]
-        folder = get_folder_by_name(outlook_app, name)
+        folder = get_folder_by_name(outlook_app, name, all_stores)
         return folder, FolderInfo(name=folder.Name)
 
     if folder_spec_lower.startswith("by-path:"):
         path = folder_spec[8:]
-        folder = get_folder_by_path(outlook_app, path)
+        folder = get_folder_by_path(outlook_app, path, all_stores)
         return folder, FolderInfo(name=folder.Name, path=path)
 
     # Default folder
@@ -732,6 +826,7 @@ def list_messages(
     until: Optional[datetime] = None,
     include_body_snippet: bool = False,
     body_snippet_chars: int = 200,
+    all_stores: bool = False,
 ) -> Iterator[MessageSummary]:
     """
     List messages from a folder.
@@ -749,7 +844,7 @@ def list_messages(
     Yields:
         MessageSummary objects
     """
-    folder, _ = resolve_folder(outlook_app, folder_spec)
+    folder, _ = resolve_folder(outlook_app, folder_spec, all_stores)
     items = folder.Items
     items.Sort("[ReceivedTime]", True)  # Sort descending (newest first)
 
@@ -802,6 +897,7 @@ def search_messages(
     count: int = 50,
     include_body_snippet: bool = False,
     body_snippet_chars: int = 200,
+    all_stores: bool = False,
 ) -> Iterator[MessageSummary]:
     """
     Search messages with various filters.
@@ -825,7 +921,7 @@ def search_messages(
     Yields:
         MessageSummary objects
     """
-    folder, _ = resolve_folder(outlook_app, folder_spec)
+    folder, _ = resolve_folder(outlook_app, folder_spec, all_stores)
 
     # Build DASL filter for more efficient searching
     filters = []
@@ -1208,6 +1304,7 @@ def move_message(
     entry_id: str,
     store_id: str,
     dest_folder_spec: str,
+    all_stores: bool = False,
 ) -> tuple[str, str, str]:
     """
     Move a message to another folder.
@@ -1226,7 +1323,7 @@ def move_message(
     """
     try:
         mail = get_message_by_id(outlook_app, entry_id, store_id)
-        dest_folder, folder_info = resolve_folder(outlook_app, dest_folder_spec)
+        dest_folder, folder_info = resolve_folder(outlook_app, dest_folder_spec, all_stores)
 
         # Move returns the moved item with new IDs
         moved_mail = mail.Move(dest_folder)
@@ -1631,22 +1728,24 @@ def _find_calendar_folders(folder, path_prefix: str = "") -> list[tuple[str, str
     return calendars
 
 
-def list_all_calendars(outlook_app) -> list[dict]:
+def list_all_calendars(
+    outlook_app, store: Optional[str] = None, all_stores: bool = False
+) -> list[dict]:
     """
-    List all calendar folders across all stores.
+    List the calendar folders of the default store, a named store, or every
+    store (default store first).
 
     Returns:
         List of dicts with 'name', 'path', 'store', 'entry_id', 'store_id'
+
+    Raises:
+        FolderNotFoundError: If the store name is unknown
     """
     namespace = get_namespace(outlook_app)
     all_calendars = []
 
-    # Iterate through all stores (accounts)
-    for store in iter_com_collection(namespace.Stores):
-        store_name = store.DisplayName
-
+    for store_name, root_folder in _scoped_store_roots(namespace, store, all_stores):
         try:
-            root_folder = store.GetRootFolder()
             calendars = _find_calendar_folders(root_folder)
 
             for name, path, folder in calendars:
@@ -1666,9 +1765,9 @@ def list_all_calendars(outlook_app) -> list[dict]:
     return all_calendars
 
 
-def get_calendar_by_name(outlook_app, name: str):
+def get_calendar_by_name(outlook_app, name: str, all_stores: bool = False):
     """
-    Get a calendar folder by name (searches all stores).
+    Get a calendar folder by name (default store, or every store with all_stores).
 
     Args:
         outlook_app: Outlook Application COM object
@@ -1681,7 +1780,7 @@ def get_calendar_by_name(outlook_app, name: str):
         CalendarNotFoundError: If calendar not found
     """
     name_lower = name.lower()
-    calendars = list_all_calendars(outlook_app)
+    calendars = list_all_calendars(outlook_app, all_stores=all_stores)
 
     # First try exact match
     for cal in calendars:
@@ -1695,10 +1794,10 @@ def get_calendar_by_name(outlook_app, name: str):
             namespace = get_namespace(outlook_app)
             return namespace.GetFolderFromID(cal["entry_id"], cal["store_id"])
 
-    raise CalendarNotFoundError(f"Calendar not found: {name}")
+    raise CalendarNotFoundError(f"Calendar not found: {name}{_scope_hint(all_stores)}")
 
 
-def get_calendar(outlook_app, calendar_spec: Optional[str] = None):
+def get_calendar(outlook_app, calendar_spec: Optional[str] = None, all_stores: bool = False):
     """
     Get a calendar folder.
 
@@ -1721,7 +1820,7 @@ def get_calendar(outlook_app, calendar_spec: Optional[str] = None):
         # Check for by-name: prefix
         if calendar_spec.startswith("by-name:"):
             cal_name = calendar_spec[8:]  # Remove "by-name:" prefix
-            return get_calendar_by_name(outlook_app, cal_name)
+            return get_calendar_by_name(outlook_app, cal_name, all_stores)
 
         # Try as email address for shared calendar
         try:
@@ -1734,10 +1833,10 @@ def get_calendar(outlook_app, calendar_spec: Optional[str] = None):
 
         # Fall back to by-name search
         try:
-            return get_calendar_by_name(outlook_app, calendar_spec)
+            return get_calendar_by_name(outlook_app, calendar_spec, all_stores)
         except CalendarNotFoundError:
             raise CalendarNotFoundError(
-                f"Could not resolve calendar for: {calendar_spec}"
+                f"Could not resolve calendar for: {calendar_spec}{_scope_hint(all_stores)}"
             )
 
     return get_default_folder(outlook_app, OL_FOLDER_CALENDAR)
@@ -1973,6 +2072,7 @@ def list_events(
     end_date: datetime,
     calendar_email: Optional[str] = None,
     count: int = 100,
+    all_stores: bool = False,
 ) -> Iterator[EventSummary]:
     """
     List events from a calendar within a date range.
@@ -1987,7 +2087,7 @@ def list_events(
     Yields:
         EventSummary objects
     """
-    calendar = get_calendar(outlook_app, calendar_email)
+    calendar = get_calendar(outlook_app, calendar_email, all_stores)
     yield from list_events_from_folder(calendar, start_date, end_date, count)
 
 
@@ -2409,14 +2509,17 @@ def delete_event(
 # =============================================================================
 
 
-def _iter_contacts_folders(namespace):
-    """Yield (store_name, contacts_folder) for every store that has a Contacts folder."""
-    for store in iter_com_collection(namespace.Stores):
+def _iter_contacts_folders(namespace, store: Optional[str] = None, all_stores: bool = False):
+    """
+    Yield (store_name, contacts_folder) for the default store, a named store,
+    or every store (default first) that has a Contacts folder.
+    """
+    for store_name, root_folder in _scoped_store_roots(namespace, store, all_stores):
         try:
-            folder = store.GetDefaultFolder(OL_FOLDER_CONTACTS)
+            folder = root_folder.Store.GetDefaultFolder(OL_FOLDER_CONTACTS)
         except Exception:
             continue
-        yield str(store.DisplayName), folder
+        yield store_name, folder
 
 
 def _member_email(recipient) -> str:
@@ -2453,19 +2556,24 @@ def _group_items(folder):
             continue
 
 
-def list_contact_groups(outlook_app) -> list[ContactGroup]:
-    """List contact groups on every store."""
+def list_contact_groups(
+    outlook_app, store: Optional[str] = None, all_stores: bool = False
+) -> list[ContactGroup]:
+    """List contact groups of the default store, a named store, or every store."""
     namespace = get_namespace(outlook_app)
     groups = []
-    for store_name, folder in _iter_contacts_folders(namespace):
+    for store_name, folder in _iter_contacts_folders(namespace, store, all_stores):
         for item in _group_items(folder):
             groups.append(_group_model(item, store_name))
     return groups
 
 
-def _find_contact_group(outlook_app, name: str, store: Optional[str] = None):
+def _find_contact_group(
+    outlook_app, name: str, store: Optional[str] = None, all_stores: bool = False
+):
     """
-    Find a contact group by name (case-insensitive), optionally on one store.
+    Find a contact group by name (case-insensitive) in the default store,
+    a named store, or every store.
 
     Returns:
         Tuple of (DistListItem, store_name)
@@ -2476,14 +2584,12 @@ def _find_contact_group(outlook_app, name: str, store: Optional[str] = None):
     """
     namespace = get_namespace(outlook_app)
     matches = []
-    for store_name, folder in _iter_contacts_folders(namespace):
-        if store and store_name.lower() != store.lower():
-            continue
+    for store_name, folder in _iter_contacts_folders(namespace, store, all_stores):
         for item in _group_items(folder):
             if str(item.DLName).lower() == name.lower():
                 matches.append((item, store_name))
     if not matches:
-        where = f" on store '{store}'" if store else ""
+        where = f" on store '{store}'" if store else _scope_hint(all_stores)
         raise ContactGroupNotFoundError(f"Contact group not found: {name}{where}")
     if len(matches) > 1:
         stores = ", ".join(store_name for _, store_name in matches)
@@ -2493,9 +2599,11 @@ def _find_contact_group(outlook_app, name: str, store: Optional[str] = None):
     return matches[0]
 
 
-def get_contact_group(outlook_app, name: str, store: Optional[str] = None) -> ContactGroup:
+def get_contact_group(
+    outlook_app, name: str, store: Optional[str] = None, all_stores: bool = False
+) -> ContactGroup:
     """Get one contact group with its members."""
-    item, store_name = _find_contact_group(outlook_app, name, store)
+    item, store_name = _find_contact_group(outlook_app, name, store, all_stores)
     return _group_model(item, store_name)
 
 
@@ -2535,7 +2643,7 @@ def create_contact_group(
     """
     namespace = get_namespace(outlook_app)
     if store:
-        folders = [f for s, f in _iter_contacts_folders(namespace) if s.lower() == store.lower()]
+        folders = [f for _s, f in _iter_contacts_folders(namespace, store)]
         if not folders:
             raise OutlookError(f"Store not found or has no Contacts folder: {store}")
         folder = folders[0]
@@ -2560,10 +2668,11 @@ def create_contact_group(
 
 
 def add_group_members(
-    outlook_app, name: str, members: list[str], store: Optional[str] = None
+    outlook_app, name: str, members: list[str], store: Optional[str] = None,
+    all_stores: bool = False,
 ) -> tuple[ContactGroup, list[str], list[str]]:
     """Add members to a group. Returns (group, added, skipped_already_present)."""
-    item, store_name = _find_contact_group(outlook_app, name, store)
+    item, store_name = _find_contact_group(outlook_app, name, store, all_stores)
     added, skipped = _add_members(get_namespace(outlook_app), item, members)
     if added:
         item.Save()
@@ -2571,10 +2680,11 @@ def add_group_members(
 
 
 def remove_group_members(
-    outlook_app, name: str, members: list[str], store: Optional[str] = None
+    outlook_app, name: str, members: list[str], store: Optional[str] = None,
+    all_stores: bool = False,
 ) -> tuple[ContactGroup, list[str], list[str]]:
     """Remove members from a group. Returns (group, removed, skipped_not_present)."""
-    item, store_name = _find_contact_group(outlook_app, name, store)
+    item, store_name = _find_contact_group(outlook_app, name, store, all_stores)
     namespace = get_namespace(outlook_app)
     current = {m.email.lower() for m in _group_members(item)}
     removed, skipped = [], []
@@ -2590,9 +2700,11 @@ def remove_group_members(
     return _group_model(item, store_name), removed, skipped
 
 
-def delete_contact_group(outlook_app, name: str, store: Optional[str] = None) -> ContactGroup:
+def delete_contact_group(
+    outlook_app, name: str, store: Optional[str] = None, all_stores: bool = False
+) -> ContactGroup:
     """Delete a contact group (moved to Deleted Items, not permanently removed)."""
-    item, store_name = _find_contact_group(outlook_app, name, store)
+    item, store_name = _find_contact_group(outlook_app, name, store, all_stores)
     group = _group_model(item, store_name)
     item.Delete()
     return group

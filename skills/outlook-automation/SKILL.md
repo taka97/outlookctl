@@ -42,6 +42,7 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 |---------|-------------|
 | `doctor` | Validate environment and prerequisites |
 | `list` | List messages from a folder |
+| `folders` | List the folder tree of the default store (`--all-stores` for every store) |
 | `get` | Get a single message by ID |
 | `search` | Search messages with filters |
 | `draft` | Create a draft, reply or reply-all (`--reply-to-id/--reply-to-store [--reply-all]`) |
@@ -56,7 +57,7 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 
 | Command | Description |
 |---------|-------------|
-| `contacts group list` | List contact groups on all stores |
+| `contacts group list` | List contact groups (default store; `--all-stores` for every store) |
 | `contacts group show` | Show a group and its members |
 | `contacts group create` | Create a group (default Contacts folder) |
 | `contacts group add` | Add members to a group |
@@ -68,7 +69,7 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 | Command | Description |
 |---------|-------------|
 | `calendar calendars` | List all available calendars (including subscribed ICS) |
-| `calendar list` | List calendar events (default: next 7 days, use --all for all calendars) |
+| `calendar list` | List calendar events (default: next 7 days, use --all for all calendars of the default store, add --all-stores for every store) |
 | `calendar get` | Get event details by ID |
 | `calendar create` | Create an event or meeting (draft by default) |
 | `calendar send` | Send meeting invitations |
@@ -77,6 +78,10 @@ uv run --project "C:/Users/GordonMickel/work/outlookctl" python -m outlookctl.cl
 | `calendar delete` | Delete/cancel an event (sends cancellations if needed) |
 
 **Tip:** Use `--calendar "Name"` to access non-default calendars (e.g., `--calendar "Family"`).
+
+## Stores
+
+Every command works on the default store (the account holding the default Inbox). Use `--store "<name>"` to pick another store where supported, or `--all-stores` to use every store. A `by-path:<store name>/...` folder always uses that store.
 
 ## Safety Rules
 

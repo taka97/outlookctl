@@ -143,3 +143,45 @@ def to_local_iso(value) -> str:
         return wall_clock.astimezone().isoformat()
     except (OverflowError, OSError, ValueError):
         return wall_clock.isoformat()
+
+
+FOLDER_ITEM_TYPES = {
+    0: "mail",
+    1: "calendar",
+    2: "contacts",
+    3: "tasks",
+    4: "journal",
+    5: "notes",
+    6: "post",
+}
+
+
+def folder_item_type(default_item_type) -> str:
+    """Name for an Outlook Folder.DefaultItemType value ("other" if unknown)."""
+    try:
+        return FOLDER_ITEM_TYPES.get(int(default_item_type), "other")
+    except (TypeError, ValueError):
+        return "other"
+
+
+def folder_spec(store: str, path: str) -> str:
+    """The `--folder` value that selects this folder, e.g. by-path:me@x.com/Inbox/Sub."""
+    return f"by-path:{store}/{path}" if path else f"by-path:{store}"
+
+
+def select_stores(names: list[str], store=None, all_stores: bool = False) -> list[int]:
+    """
+    Indexes of the stores a command works on. ``names`` is default store first.
+
+    - ``store`` given: that store only (case-insensitive); LookupError if unknown
+    - ``all_stores``: every store
+    - otherwise: the default store only
+    """
+    if store is not None:
+        found = [i for i, name in enumerate(names) if name.lower() == store.lower()]
+        if not found:
+            raise LookupError(store)
+        return found
+    if all_stores:
+        return list(range(len(names)))
+    return [0] if names else []

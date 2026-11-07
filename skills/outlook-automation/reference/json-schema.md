@@ -290,6 +290,32 @@ All outputs include a `version` field. Current version is `"1.0"`. Future versio
 
 `added`, `removed`, `skipped` and `message` are omitted when empty. Error codes: `GROUP_NOT_FOUND`, `GROUP_ERROR`, `VALIDATION_ERROR`.
 
+## Folders
+
+`outlookctl folders` returns:
+
+```json
+{
+  "version": "1.0",
+  "count": 1,
+  "folders": [
+    {
+      "name": "Projects",
+      "path": "Inbox/Projects",
+      "store": "me@example.com",
+      "folder_spec": "by-path:me@example.com/Inbox/Projects",
+      "item_type": "mail",
+      "depth": 2,
+      "subfolder_count": 0,
+      "item_count": 15,
+      "unread_count": 2
+    }
+  ]
+}
+```
+
+`path` is relative to the store root; `depth` 1 is a top-level folder. `item_type` is one of mail, calendar, contacts, tasks, journal, notes, post, other. `item_count`/`unread_count` are omitted when Outlook cannot read them. Error codes: `FOLDER_NOT_FOUND` (unknown `--store`), `FOLDERS_ERROR`.
+
 ## Timestamps
 
 Outlook dates (`received_at`, event `start`/`end`, recurrence `end_date`) are ISO 8601 local time with the machine's real UTC offset, e.g. `"2026-11-11T09:00:00+07:00"` for 09:00 in Vietnam.

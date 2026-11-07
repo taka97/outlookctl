@@ -38,10 +38,12 @@ from .models import (
     EventId,
     ContactGroupListResult,
     ContactGroupResult,
+    FolderListResult,
 )
 from .outlook_com import (
     get_outlook_app,
     resolve_folder,
+    list_folders,
     list_messages,
     search_messages,
     get_message_by_id,
@@ -222,7 +224,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 def cmd_list(args: argparse.Namespace) -> None:
     """List messages from a folder."""
     outlook = get_outlook_app()
-    _folder, folder_info = resolve_folder(outlook, args.folder)
+    _folder, folder_info = resolve_folder(outlook, args.folder, args.all_stores)
 
     since = parse_date(args.since) if args.since else None
     until = parse_date(args.until) if args.until else None
@@ -236,6 +238,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         until=until,
         include_body_snippet=args.include_body_snippet,
         body_snippet_chars=args.body_snippet_chars,
+        all_stores=args.all_stores,
     ))
 
     result = ListResult(
@@ -243,6 +246,21 @@ def cmd_list(args: argparse.Namespace) -> None:
         items=messages,
     )
     output_json(result.to_dict(), args.output)
+
+
+@handle_outlook_errors("FOLDERS_ERROR")
+def cmd_folders(args: argparse.Namespace) -> None:
+    """List folders of the default store, one store, or every store."""
+    if args.depth is not None and args.depth < 1:
+        raise ValueError("--depth must be 1 or more.")
+    folders = list_folders(
+        get_outlook_app(),
+        store=args.store,
+        item_type=None if args.type == "all" else args.type,
+        max_depth=args.depth,
+        all_stores=args.all_stores,
+    )
+    output_json(FolderListResult(folders=folders).to_dict(), args.output)
 
 
 @handle_outlook_errors("GET_ERROR")
@@ -291,6 +309,7 @@ def cmd_search(args: argparse.Namespace) -> None:
         count=args.count,
         include_body_snippet=args.include_body_snippet,
         body_snippet_chars=args.body_snippet_chars,
+        all_stores=args.all_stores,
     ))
 
     query_info = {}
@@ -558,6 +577,7 @@ def cmd_move(args: argparse.Namespace) -> None:
         entry_id=args.id,
         store_id=args.store,
         dest_folder_spec=args.dest,
+        all_stores=args.all_stores,
     )
 
     result = MoveResult(
@@ -664,15 +684,15 @@ def _parse_members(value: Optional[str]) -> list[str]:
 
 @handle_outlook_errors("GROUP_ERROR")
 def cmd_group_list(args: argparse.Namespace) -> None:
-    """List contact groups on all stores."""
-    groups = list_contact_groups(get_outlook_app())
+    """List contact groups of the default store (or --store / --all-stores)."""
+    groups = list_contact_groups(get_outlook_app(), args.store, args.all_stores)
     output_json(ContactGroupListResult(groups=groups).to_dict(), args.output)
 
 
 @handle_outlook_errors("GROUP_ERROR")
 def cmd_group_show(args: argparse.Namespace) -> None:
     """Show one contact group."""
-    group = get_contact_group(get_outlook_app(), args.name, args.store)
+    group = get_contact_group(get_outlook_app(), args.name, args.store, args.all_stores)
     output_json(ContactGroupResult(group=group).to_dict(), args.output)
 
 
@@ -695,7 +715,8 @@ def cmd_group_create(args: argparse.Namespace) -> None:
 def cmd_group_add(args: argparse.Namespace) -> None:
     """Add members to a contact group."""
     group, added, skipped = add_group_members(
-        get_outlook_app(), args.name, _parse_members(args.members), args.store
+        get_outlook_app(), args.name, _parse_members(args.members), args.store,
+        args.all_stores,
     )
     output_json(
         ContactGroupResult(group=group, added=added, skipped=skipped).to_dict(),
@@ -707,7 +728,8 @@ def cmd_group_add(args: argparse.Namespace) -> None:
 def cmd_group_remove(args: argparse.Namespace) -> None:
     """Remove members from a contact group."""
     group, removed, skipped = remove_group_members(
-        get_outlook_app(), args.name, _parse_members(args.members), args.store
+        get_outlook_app(), args.name, _parse_members(args.members), args.store,
+        args.all_stores,
     )
     output_json(
         ContactGroupResult(group=group, removed=removed, skipped=skipped).to_dict(),
@@ -720,7 +742,7 @@ def cmd_group_delete(args: argparse.Namespace) -> None:
     """Delete a contact group (moves it to Deleted Items)."""
     if args.confirm != "YES":
         raise ValueError("Deleting a contact group requires --confirm YES.")
-    group = delete_contact_group(get_outlook_app(), args.name, args.store)
+    group = delete_contact_group(get_outlook_app(), args.name, args.store, args.all_stores)
     output_json(
         ContactGroupResult(
             message="Contact group moved to Deleted Items", group=group
@@ -758,7 +780,7 @@ def parse_datetime(dt_str: str) -> datetime:
 def cmd_calendar_calendars(args: argparse.Namespace) -> None:
     """List all available calendars."""
     outlook = get_outlook_app()
-    calendars = list_all_calendars(outlook)
+    calendars = list_all_calendars(outlook, args.store, args.all_stores)
 
     result = CalendarsResult(
         calendars=[
@@ -796,7 +818,7 @@ def cmd_calendar_list(args: argparse.Namespace) -> None:
         if getattr(args, 'all', False):
             from outlookctl.outlook_com import list_events_from_folder
 
-            calendars = list_all_calendars(outlook)
+            calendars = list_all_calendars(outlook, all_stores=args.all_stores)
             all_events = []
 
             for cal in calendars:
@@ -841,6 +863,7 @@ def cmd_calendar_list(args: argparse.Namespace) -> None:
                 end_date=end_date,
                 calendar_email=args.calendar,
                 count=args.count,
+                all_stores=args.all_stores,
             ))
 
             result = CalendarListResult(
@@ -1173,7 +1196,38 @@ def create_parser() -> argparse.ArgumentParser:
         "--output", choices=["json", "text"], default="json",
         help="Output format (default: json)"
     )
+    list_parser.add_argument(
+        "--all-stores", action="store_true",
+        help="by-name/by-path: Look in every store, not only the default store"
+    )
     list_parser.set_defaults(func=cmd_list)
+
+    # Folders command
+    folders_parser = subparsers.add_parser(
+        "folders", help="List folders of the default store (mail folders by default)"
+    )
+    folders_store_group = folders_parser.add_mutually_exclusive_group()
+    folders_store_group.add_argument(
+        "--store", help="List this store instead (display name, e.g. me@example.com)"
+    )
+    folders_store_group.add_argument(
+        "--all-stores", action="store_true",
+        help="List every store (default store first)"
+    )
+    folders_parser.add_argument(
+        "--type", default="mail",
+        choices=["mail", "calendar", "contacts", "tasks", "journal", "notes", "post", "all"],
+        help="Folder type to list (default: mail)"
+    )
+    folders_parser.add_argument(
+        "--depth", type=int,
+        help="Deepest level to list (1 = top-level folders only; default: all)"
+    )
+    folders_parser.add_argument(
+        "--output", choices=["json", "text"], default="json",
+        help="Output format (default: json)"
+    )
+    folders_parser.set_defaults(func=cmd_folders)
 
     # Get command
     get_parser = subparsers.add_parser(
@@ -1259,6 +1313,10 @@ def create_parser() -> argparse.ArgumentParser:
     search_parser.add_argument(
         "--output", choices=["json", "text"], default="json",
         help="Output format (default: json)"
+    )
+    search_parser.add_argument(
+        "--all-stores", action="store_true",
+        help="by-name/by-path: Look in every store, not only the default store"
     )
     search_parser.set_defaults(func=cmd_search)
 
@@ -1414,6 +1472,10 @@ def create_parser() -> argparse.ArgumentParser:
         "--output", choices=["json", "text"], default="json",
         help="Output format (default: json)"
     )
+    move_parser.add_argument(
+        "--all-stores", action="store_true",
+        help="by-name/by-path destination: Look in every store, not only the default store"
+    )
     move_parser.set_defaults(func=cmd_move)
 
     # Delete command
@@ -1506,11 +1568,13 @@ def create_parser() -> argparse.ArgumentParser:
         p = group_subparsers.add_parser(name, help=help_text)
         if needs_name:
             p.add_argument("--name", required=True, help="Contact group name")
-            p.add_argument(
-                "--store",
-                help="Store display name (default: search all stores; "
-                     "for create: the default Contacts folder)",
-            )
+        scope = p.add_mutually_exclusive_group()
+        scope.add_argument(
+            "--store",
+            help="Store display name (default: the default store)",
+        )
+        if name != "create":
+            scope.add_argument("--all-stores", action="store_true", help="Look in every store, not only the default store")
         if members == "required":
             p.add_argument("--members", required=True, help="Member addresses (comma-separated)")
         elif members == "optional":
@@ -1523,7 +1587,7 @@ def create_parser() -> argparse.ArgumentParser:
         )
         p.set_defaults(func=func)
 
-    add_group_command("list", "List contact groups on all stores", cmd_group_list, needs_name=False)
+    add_group_command("list", "List contact groups (default store; --all-stores for every store)", cmd_group_list, needs_name=False)
     add_group_command("show", "Show a contact group and its members", cmd_group_show)
     add_group_command("create", "Create a contact group", cmd_group_create, members="optional")
     add_group_command("add", "Add members to a contact group", cmd_group_add, members="required")
@@ -1542,7 +1606,14 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Calendar calendars (list all calendars)
     cal_calendars_parser = calendar_subparsers.add_parser(
-        "calendars", help="List all available calendars"
+        "calendars", help="List calendars (default store; --all-stores for every store)"
+    )
+    cal_calendars_scope = cal_calendars_parser.add_mutually_exclusive_group()
+    cal_calendars_scope.add_argument(
+        "--store", help="Store display name (default: the default store)"
+    )
+    cal_calendars_scope.add_argument(
+        "--all-stores", action="store_true", help="Look in every store, not only the default store"
     )
     cal_calendars_parser.add_argument(
         "--output", choices=["json", "text"], default="json",
@@ -1570,7 +1641,11 @@ def create_parser() -> argparse.ArgumentParser:
     )
     cal_list_parser.add_argument(
         "--all", action="store_true",
-        help="Query ALL calendars and merge results (overrides --calendar)"
+        help="Query all calendars of the default store (with --all-stores: every store) and merge results (overrides --calendar)"
+    )
+    cal_list_parser.add_argument(
+        "--all-stores", action="store_true",
+        help="--calendar <name> / --all: Look in every store, not only the default store"
     )
     cal_list_parser.add_argument(
         "--count", type=int, default=100,

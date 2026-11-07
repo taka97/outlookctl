@@ -682,6 +682,50 @@ class ErrorResult:
 
 
 @dataclass
+class FolderEntry:
+    """One folder in a store's folder tree."""
+    name: str
+    path: str
+    store: str
+    item_type: str
+    depth: int
+    item_count: Optional[int] = None
+    unread_count: Optional[int] = None
+    subfolder_count: int = 0
+
+    def to_dict(self) -> dict:
+        from .utils import folder_spec
+        result = {
+            "name": self.name,
+            "path": self.path,
+            "store": self.store,
+            "folder_spec": folder_spec(self.store, self.path),
+            "item_type": self.item_type,
+            "depth": self.depth,
+            "subfolder_count": self.subfolder_count,
+        }
+        if self.item_count is not None:
+            result["item_count"] = self.item_count
+        if self.unread_count is not None:
+            result["unread_count"] = self.unread_count
+        return result
+
+
+@dataclass
+class FolderListResult:
+    """Result of listing folders."""
+    version: str = "1.0"
+    folders: list[FolderEntry] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "count": len(self.folders),
+            "folders": [f.to_dict() for f in self.folders],
+        }
+
+
+@dataclass
 class GroupMember:
     """A member of a contact group."""
     name: str

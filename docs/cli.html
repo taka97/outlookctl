@@ -684,6 +684,7 @@
         <div class="sidebar-title">Email Commands</div>
         <ul class="sidebar-nav">
           <li><a href="#list"><span class="cmd-icon">$</span> list</a></li>
+          <li><a href="#folders"><span class="cmd-icon">$</span> folders <span class="new-badge">new</span></a></li>
           <li><a href="#get"><span class="cmd-icon">$</span> get</a></li>
           <li><a href="#search"><span class="cmd-icon">$</span> search</a></li>
           <li><a href="#draft"><span class="cmd-icon">$</span> draft</a></li>
@@ -849,9 +850,55 @@
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 12px;">
                   Custom folders: <code>by-name:FolderName</code> or <code>by-path:Inbox/Subfolder</code>.
-                  Both search every store, starting with the store that holds the default Inbox.
+                  Both look in the default store (the one holding the default Inbox); add <code>--all-stores</code> to look in every store.
                   Prefix the path with a store name to pick a store: <code>by-path:me@example.com/Inbox/Subfolder</code>.
                 </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Folders (NEW) -->
+        <section id="folders" class="section">
+          <div class="command-card new-command">
+            <div class="command-header">
+              <span class="command-name">outlookctl folders</span>
+              <div class="command-badges">
+                <span class="command-type">email</span>
+                <span class="command-type new">new</span>
+              </div>
+            </div>
+            <div class="command-body">
+              <p class="command-desc">List the folder tree of the default store (the one holding the default Inbox). Mail folders only by default. Each entry has a <code>folder_spec</code> (e.g. <code>by-path:me@example.com/Inbox/Projects</code>) that can be passed to <code>list</code>/<code>search --folder</code> or <code>move --dest</code>.</p>
+
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">bash</span>
+                  <button class="code-copy">Copy</button>
+                </div>
+                <div class="code-content"><span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">folders</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">folders</span> <span class="syn-flag">--store</span> <span class="syn-string">"me@example.com"</span> <span class="syn-flag">--depth</span> <span class="syn-value">2</span>
+<span class="syn-cmd">uv run python -m outlookctl.cli</span> <span class="syn-flag">folders</span> <span class="syn-flag">--all-stores</span> <span class="syn-flag">--type</span> <span class="syn-value">all</span></div>
+              </div>
+
+              <div class="subsection">
+                <h4>Options</h4>
+                <table class="options-table">
+                  <thead>
+                    <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><code>--store</code></td><td><span class="default">default store</span></td><td>List this store instead (display name); unknown name gives <code>FOLDER_NOT_FOUND</code></td></tr>
+                    <tr><td><code>--all-stores</code></td><td><span class="default">false</span></td><td>List every store, default store first (not with <code>--store</code>)</td></tr>
+                    <tr><td><code>--type</code></td><td><span class="default">mail</span></td><td>mail, calendar, contacts, tasks, journal, notes, post or all. Other folders are still walked, so their mail subfolders are listed.</td></tr>
+                    <tr><td><code>--depth</code></td><td><span class="default">all</span></td><td>Deepest level to list (1 = top-level folders only)</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="subsection">
+                <h4>Output fields</h4>
+                <p><code>name</code>, <code>path</code> (relative to the store root), <code>store</code>, <code>folder_spec</code>, <code>item_type</code>, <code>depth</code>, <code>subfolder_count</code>, <code>item_count</code>, <code>unread_count</code>.</p>
               </div>
             </div>
           </div>
@@ -1284,7 +1331,7 @@
               </div>
             </div>
             <div class="command-body">
-              <p class="command-desc">Manage Outlook contact groups (distribution lists) on every store's Contacts folder. Use a group name anywhere an address is accepted, e.g. <code>--cc "Team Group"</code>.</p>
+              <p class="command-desc">Manage Outlook contact groups (distribution lists) in the default store's Contacts folder (<code>--store</code> for another store, <code>--all-stores</code> for every store). Use a group name anywhere an address is accepted, e.g. <code>--cc "Team Group"</code>.</p>
 
               <div class="code-block">
                 <div class="code-header">
@@ -1306,7 +1353,7 @@
                     <tr><th>Subcommand</th><th>Description</th></tr>
                   </thead>
                   <tbody>
-                    <tr><td><code>list</code></td><td>List groups on all stores with their members</td></tr>
+                    <tr><td><code>list</code></td><td>List groups of the default store with their members</td></tr>
                     <tr><td><code>show</code></td><td>Show one group and its members</td></tr>
                     <tr><td><code>create</code></td><td>Create a group in the default Contacts folder (or <code>--store</code>); fails if the name already exists there</td></tr>
                     <tr><td><code>add</code></td><td>Add members; already-present members are reported as <code>skipped</code></td></tr>
@@ -1325,7 +1372,8 @@
                   <tbody>
                     <tr><td><code>--name</code></td><td><span class="label label-required">Required</span></td><td>Group name (case-insensitive); not used by <code>list</code></td></tr>
                     <tr><td><code>--members</code></td><td><span class="label label-optional">add/remove</span></td><td>Comma-separated addresses (optional for <code>create</code>)</td></tr>
-                    <tr><td><code>--store</code></td><td><span class="label label-optional">Optional</span></td><td>Store display name, needed when the same group name exists on several stores</td></tr>
+                    <tr><td><code>--store</code></td><td><span class="label label-optional">Optional</span></td><td>Store display name (default: the default store)</td></tr>
+                    <tr><td><code>--all-stores</code></td><td><span class="label label-optional">Optional</span></td><td>Look in every store (not for <code>create</code>)</td></tr>
                     <tr><td><code>--confirm</code></td><td><span class="label label-optional">delete</span></td><td>Must be <code>YES</code> to delete</td></tr>
                   </tbody>
                 </table>
@@ -1343,7 +1391,7 @@
               <span class="new-badge">new</span>
             </div>
             <div class="command-body">
-              <p class="command-desc">List all available calendars across all accounts, including subscribed ICS calendars, shared calendars, and internet calendars.</p>
+              <p class="command-desc">List the calendars of the default account, including subscribed ICS calendars, shared calendars, and internet calendars. Use <code>--store "&lt;name&gt;"</code> for another account or <code>--all-stores</code> for every account.</p>
 
               <div class="code-block">
                 <div class="code-header">
@@ -1416,6 +1464,8 @@
                     <tr><td><code>--end</code></td><td><span class="default">-</span></td><td>End date (overrides --days)</td></tr>
                     <tr><td><code>--days</code></td><td><span class="default">7</span></td><td>Number of days from start</td></tr>
                     <tr><td><code>--calendar</code></td><td><span class="default">-</span></td><td>Calendar name or email for shared calendar</td></tr>
+                    <tr><td><code>--all</code></td><td><span class="default">false</span></td><td>All calendars of the default store, merged</td></tr>
+                    <tr><td><code>--all-stores</code></td><td><span class="default">false</span></td><td><code>--calendar</code> name and <code>--all</code> look in every store</td></tr>
                     <tr><td><code>--count</code></td><td><span class="default">100</span></td><td>Maximum events</td></tr>
                   </tbody>
                 </table>
