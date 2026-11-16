@@ -817,6 +817,28 @@ def get_message_by_id(outlook_app, entry_id: str, store_id: str):
         )
 
 
+def open_item(outlook_app, entry_id: str, store_id: str) -> tuple[str, str]:
+    """
+    Open any Outlook item (mail, draft, event, contact) in its own window.
+
+    Display is non-modal, so the call returns right away and the user
+    reviews/edits/sends the item in Outlook. Nothing is sent or changed.
+
+    Returns:
+        (subject, message_class) of the opened item
+
+    Raises:
+        MessageNotFoundError: If the item is not found
+        OutlookError: If the window cannot be shown
+    """
+    item = get_message_by_id(outlook_app, entry_id, store_id)
+    try:
+        item.Display(False)
+    except Exception as e:
+        raise OutlookError(f"Failed to open item: {e}")
+    return str(item.Subject or ""), str(getattr(item, "MessageClass", "") or "")
+
+
 def list_messages(
     outlook_app,
     folder_spec: str = "inbox",

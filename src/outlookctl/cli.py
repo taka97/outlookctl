@@ -26,6 +26,7 @@ from .models import (
     DeleteResult,
     MarkReadResult,
     ForwardResult,
+    OpenResult,
     # Calendar models
     CalendarInfo,
     CalendarsResult,
@@ -62,6 +63,7 @@ from .outlook_com import (
     move_message,
     delete_message,
     mark_message_read,
+    open_item,
     create_forward,
     create_reply,
     # Calendar functions
@@ -632,6 +634,20 @@ def cmd_mark_read(args: argparse.Namespace) -> None:
         message=f"Message marked as {status}",
         count=1,
         marked_as=status,
+    )
+    output_json(result.to_dict(), args.output)
+
+
+@handle_outlook_errors("OPEN_ERROR")
+def cmd_open(args: argparse.Namespace) -> None:
+    """Open a message, draft, event or contact in an Outlook window."""
+    outlook = get_outlook_app()
+    subject, message_class = open_item(outlook, args.id, args.store)
+    result = OpenResult(
+        success=True,
+        message="Item opened in Outlook",
+        subject=subject,
+        message_class=message_class,
     )
     output_json(result.to_dict(), args.output)
 
@@ -1517,6 +1533,23 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format (default: json)"
     )
     mark_parser.set_defaults(func=cmd_mark_read)
+
+    # Open command
+    open_parser = subparsers.add_parser(
+        "open",
+        help="Open a message, draft, event or contact in an Outlook window",
+    )
+    open_parser.add_argument(
+        "--id", required=True, help="Item entry ID"
+    )
+    open_parser.add_argument(
+        "--store", required=True, help="Item store ID"
+    )
+    open_parser.add_argument(
+        "--output", choices=["json", "text"], default="json",
+        help="Output format (default: json)"
+    )
+    open_parser.set_defaults(func=cmd_open)
 
     # Forward command
     forward_parser = subparsers.add_parser(

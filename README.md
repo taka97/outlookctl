@@ -103,6 +103,7 @@ uv run python -m outlookctl.cli calendar create --subject "Focus Time" --start "
 | `move` | Move message to another folder |
 | `delete` | Delete a message |
 | `mark-read` | Mark message as read/unread |
+| `open` | Open a message, draft, event or contact in an Outlook window |
 | `forward` | Create a forward draft |
 | `attachments save` | Save attachments to disk |
 

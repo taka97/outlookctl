@@ -280,6 +280,25 @@ class MarkReadResult:
 
 
 @dataclass
+class OpenResult:
+    """Result of opening an item in an Outlook window."""
+    version: str = "1.0"
+    success: bool = True
+    message: str = ""
+    subject: str = ""
+    message_class: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "success": self.success,
+            "message": self.message,
+            "subject": self.subject,
+            "message_class": self.message_class,
+        }
+
+
+@dataclass
 class ForwardResult:
     """Result of creating a forward draft."""
     version: str = "1.0"
