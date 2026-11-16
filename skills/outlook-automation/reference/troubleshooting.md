@@ -7,7 +7,7 @@ Common issues and solutions for `outlookctl`.
 Always start with the doctor command:
 
 ```bash
-uv run outlookctl doctor
+outlookctl doctor
 ```
 
 This checks all prerequisites and provides specific remediation advice.
@@ -62,21 +62,30 @@ pip install pywin32
 1. **Check folder name spelling**
    ```bash
    # Use the default folders
-   uv run outlookctl list --folder inbox
-   uv run outlookctl list --folder sent
-   uv run outlookctl list --folder drafts
+   outlookctl list --folder inbox
+   outlookctl list --folder sent
+   outlookctl list --folder drafts
    ```
 
 2. **For custom folders, use by-name or by-path**
    ```bash
    # Search by name
-   uv run outlookctl list --folder "by-name:Projects"
+   outlookctl list --folder "by-name:Projects"
 
    # Search by path
-   uv run outlookctl list --folder "by-path:Inbox/Projects/2025"
+   outlookctl list --folder "by-path:Inbox/Projects/2025"
    ```
 
 3. **Folder names are case-insensitive**
+
+4. **The folder may be in another store** - lookups use the default store only.
+   ```bash
+   # See the real folder tree, then copy an entry's folder_spec
+   outlookctl folders --all-stores
+
+   # Or look in every store
+   outlookctl list --folder "by-name:Projects" --all-stores
+   ```
 
 ### "Message not found"
 
@@ -102,13 +111,13 @@ This is intentional. You must provide explicit confirmation:
 
 ```bash
 # For sending a draft
-uv run outlookctl send \
+outlookctl send \
   --draft-id "..." \
   --draft-store "..." \
   --confirm-send YES
 
 # For sending new message directly (not recommended)
-uv run outlookctl send \
+outlookctl send \
   --to "recipient@example.com" \
   --subject "Subject" \
   --body-text "Body" \
@@ -179,14 +188,14 @@ Dialog appears: "A program is trying to access email..."
 ### WSL (Windows Subsystem for Linux)
 
 - COM automation requires Windows-native Python
-- Call outlookctl via PowerShell: `powershell.exe -c "uv run outlookctl ..."`
+- Call outlookctl via PowerShell: `powershell.exe -c "outlookctl ..."`
 - Or install Python + dependencies in Windows
 
 ## Getting Help
 
 If issues persist:
 
-1. Run `uv run outlookctl doctor` and note all failures
+1. Run `outlookctl doctor` and note all failures
 2. Check Outlook is Classic (not New Outlook)
 3. Try restarting Outlook
 4. Verify pywin32: `python -c "import win32com.client; print('OK')"`
@@ -194,7 +203,7 @@ If issues persist:
 ## Version Information
 
 ```bash
-uv run outlookctl --version
+outlookctl --version
 ```
 
 Include version info when reporting issues.

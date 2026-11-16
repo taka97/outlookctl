@@ -27,10 +27,10 @@ To retrieve message body content, you must explicitly request it:
 
 ```bash
 # Get full body
-uv run outlookctl get --id "..." --store "..." --include-body
+outlookctl get --id "..." --store "..." --include-body
 
 # Get truncated snippet
-uv run outlookctl list --include-body-snippet --body-snippet-chars 200
+outlookctl list --include-body-snippet --body-snippet-chars 200
 ```
 
 ### Redaction Options
@@ -59,10 +59,10 @@ The `send` command will **refuse to execute** unless one of these conditions is 
 
 ```bash
 # This will fail
-uv run outlookctl send --draft-id "..." --draft-store "..."
+outlookctl send --draft-id "..." --draft-store "..."
 
 # This will succeed
-uv run outlookctl send --draft-id "..." --draft-store "..." --confirm-send YES
+outlookctl send --draft-id "..." --draft-store "..." --confirm-send YES
 ```
 
 ### Unsafe Direct Send
@@ -71,7 +71,7 @@ Sending a new message without first creating a draft requires **additional confi
 
 ```bash
 # Requires BOTH flags
-uv run outlookctl send \
+outlookctl send \
   --to "recipient@example.com" \
   --subject "Subject" \
   --body-text "Body" \
@@ -115,7 +115,7 @@ For send operations, the audit log records:
 To include body content in the audit log (not recommended for sensitive data):
 
 ```bash
-uv run outlookctl send --draft-id "..." --draft-store "..." --confirm-send YES --log-body
+outlookctl send --draft-id "..." --draft-store "..." --confirm-send YES --log-body
 ```
 
 ## Outlook Security Prompts

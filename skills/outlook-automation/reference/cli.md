@@ -2,6 +2,8 @@
 
 Complete reference for all `outlookctl` commands and options.
 
+Commands assume `outlookctl` is on PATH (`uv tool install "git+https://github.com/taka97/outlookctl.git@main"`). In a source checkout, prefix them with `uv run`.
+
 ## Global Options
 
 All commands support:
@@ -9,7 +11,7 @@ All commands support:
 
 ## Stores
 
-Commands work on the default store (the account holding the default Inbox). `--store "<display name>"` picks one store where supported; `--all-stores` uses every store, default first. A `by-path:<store name>/...` folder always uses that store. Note: on `get`, `move`, `delete`, `mark-read`, `forward` and the calendar event commands, `--store` is the item's store **ID**, not a display name.
+Commands work on the default store (the account holding the default Inbox). `--store "<display name>"` picks one store where supported; `--all-stores` uses every store, default first. A `by-path:<store name>/...` folder always uses that store. Note: on `get`, `move`, `delete`, `mark-read`, `open`, `forward` and the calendar event commands, `--store` is the item's store **ID**, not a display name.
 
 ## Email Commands
 
@@ -18,7 +20,7 @@ Commands work on the default store (the account holding the default Inbox). `--s
 Validates environment and prerequisites.
 
 ```bash
-uv run outlookctl doctor
+outlookctl doctor
 ```
 
 ---
@@ -28,7 +30,7 @@ uv run outlookctl doctor
 List messages from a folder.
 
 ```bash
-uv run outlookctl list [OPTIONS]
+outlookctl list [OPTIONS]
 ```
 
 **Options:**
@@ -48,7 +50,7 @@ uv run outlookctl list [OPTIONS]
 List the folder tree of the default store (the one holding the default Inbox). Mail folders only by default.
 
 ```bash
-uv run outlookctl folders [OPTIONS]
+outlookctl folders [OPTIONS]
 ```
 
 **Options:**
@@ -66,7 +68,7 @@ Each entry's `folder_spec` (e.g. `by-path:me@example.com/Inbox/Projects`) can be
 Get a single message by ID.
 
 ```bash
-uv run outlookctl get --id <entry_id> --store <store_id> [OPTIONS]
+outlookctl get --id <entry_id> --store <store_id> [OPTIONS]
 ```
 
 **Options:**
@@ -81,7 +83,7 @@ uv run outlookctl get --id <entry_id> --store <store_id> [OPTIONS]
 Search messages with various filters.
 
 ```bash
-uv run outlookctl search [OPTIONS]
+outlookctl search [OPTIONS]
 ```
 
 **Options:**
@@ -99,6 +101,7 @@ uv run outlookctl search [OPTIONS]
 - `--until` - ISO date filter
 - `--count` - Maximum results (default: 50)
 - `--include-body-snippet` - Include body preview
+- `--body-snippet-chars` - Max chars for snippet (default: 200)
 
 ---
 
@@ -107,8 +110,8 @@ uv run outlookctl search [OPTIONS]
 Create a draft message, or a reply / reply-all draft.
 
 ```bash
-uv run outlookctl draft [OPTIONS]
-uv run outlookctl draft --reply-to-id <id> --reply-to-store <store> [--reply-all] [OPTIONS]
+outlookctl draft [OPTIONS]
+outlookctl draft --reply-to-id <id> --reply-to-store <store> [--reply-all] [OPTIONS]
 ```
 
 **Options:**
@@ -136,11 +139,17 @@ Send a draft or new message. **Requires explicit confirmation.**
 
 ```bash
 # Send existing draft (recommended)
-uv run outlookctl send --draft-id <id> --draft-store <store> --confirm-send YES
+outlookctl send --draft-id <id> --draft-store <store> --confirm-send YES
 
 # Send new directly (not recommended)
-uv run outlookctl send --to "email" --subject "..." --body-text "..." --unsafe-send-new --confirm-send YES
+outlookctl send --to "email" --subject "..." --body-text "..." --unsafe-send-new --confirm-send YES
 ```
+
+**Options:**
+- `--draft-id`, `--draft-store` - Draft to send
+- `--to`, `--cc`, `--bcc` - Recipients for a new message (comma-separated)
+- `--subject`, `--body-text`, `--body-html` - Content for a new message
+- `--attach` - File to attach to a new message (repeatable)
 
 **Safety options:**
 - `--confirm-send` - Must be exactly "YES"
@@ -156,7 +165,7 @@ uv run outlookctl send --to "email" --subject "..." --body-text "..." --unsafe-s
 Move a message to another folder.
 
 ```bash
-uv run outlookctl move --id <entry_id> --store <store_id> --dest <folder>
+outlookctl move --id <entry_id> --store <store_id> --dest <folder>
 ```
 
 **Options:**
@@ -172,7 +181,7 @@ uv run outlookctl move --id <entry_id> --store <store_id> --dest <folder>
 Delete a message.
 
 ```bash
-uv run outlookctl delete --id <entry_id> --store <store_id> [--permanent]
+outlookctl delete --id <entry_id> --store <store_id> [--permanent]
 ```
 
 **Options:**
@@ -187,7 +196,7 @@ uv run outlookctl delete --id <entry_id> --store <store_id> [--permanent]
 Mark a message as read or unread.
 
 ```bash
-uv run outlookctl mark-read --id <entry_id> --store <store_id> [--unread]
+outlookctl mark-read --id <entry_id> --store <store_id> [--unread]
 ```
 
 **Options:**
@@ -197,12 +206,28 @@ uv run outlookctl mark-read --id <entry_id> --store <store_id> [--unread]
 
 ---
 
+### `outlookctl open`
+
+Open a message, draft, calendar event or contact in its own Outlook window so the user can review it. The window is non-modal; nothing is sent or changed. Use it after `draft`/`forward` to let the user preview before sending.
+
+```bash
+outlookctl open --id <entry_id> --store <store_id>
+```
+
+**Options:**
+- `--id` - Item entry ID (required)
+- `--store` - Item store ID (required)
+
+**Output:** `{"success": true, "message": "Item opened in Outlook", "subject": "...", "message_class": "IPM.Note"}`
+
+---
+
 ### `outlookctl forward`
 
 Create a forward draft for a message.
 
 ```bash
-uv run outlookctl forward --id <entry_id> --store <store_id> --to "recipient@example.com"
+outlookctl forward --id <entry_id> --store <store_id> --to "recipient@example.com"
 ```
 
 **Options:**
@@ -221,7 +246,7 @@ uv run outlookctl forward --id <entry_id> --store <store_id> --to "recipient@exa
 Save attachments from a message to disk.
 
 ```bash
-uv run outlookctl attachments save --id <entry_id> --store <store_id> --dest <directory>
+outlookctl attachments save --id <entry_id> --store <store_id> --dest <directory>
 ```
 
 ---
@@ -231,12 +256,12 @@ uv run outlookctl attachments save --id <entry_id> --store <store_id> --dest <di
 Manage Outlook contact groups (distribution lists). Groups are looked up in the default store's Contacts folder; use `--store "<store display name>"` for another store or `--all-stores` (not for `create`) for every store.
 
 ```bash
-uv run outlookctl contacts group list
-uv run outlookctl contacts group show   --name "Team"
-uv run outlookctl contacts group create --name "Team" [--members "a@x.com,b@x.com"] [--store "<store>"]
-uv run outlookctl contacts group add    --name "Team" --members "c@x.com"
-uv run outlookctl contacts group remove --name "Team" --members "a@x.com"
-uv run outlookctl contacts group delete --name "Team" --confirm YES
+outlookctl contacts group list
+outlookctl contacts group show   --name "Team"
+outlookctl contacts group create --name "Team" [--members "a@x.com,b@x.com"] [--store "<store>"]
+outlookctl contacts group add    --name "Team" --members "c@x.com"
+outlookctl contacts group remove --name "Team" --members "a@x.com"
+outlookctl contacts group delete --name "Team" --confirm YES
 ```
 
 - `create` uses the default Contacts folder unless `--store` is given, and fails if the name already exists there.
@@ -247,12 +272,26 @@ uv run outlookctl contacts group delete --name "Team" --confirm YES
 
 ## Calendar Commands
 
+### `outlookctl calendar calendars`
+
+List calendar folders (including subscribed ICS, shared and internet calendars) of the default store.
+
+```bash
+outlookctl calendar calendars [--store "<store display name>" | --all-stores]
+```
+
+**Options:**
+- `--store` - List this store instead (display name); unknown name gives `FOLDER_NOT_FOUND`
+- `--all-stores` - List every store, default store first
+
+---
+
 ### `outlookctl calendar list`
 
 List calendar events within a date range.
 
 ```bash
-uv run outlookctl calendar list [OPTIONS]
+outlookctl calendar list [OPTIONS]
 ```
 
 **Options:**
@@ -271,7 +310,7 @@ uv run outlookctl calendar list [OPTIONS]
 Get detailed information about a calendar event.
 
 ```bash
-uv run outlookctl calendar get --id <entry_id> --store <store_id> [--include-body]
+outlookctl calendar get --id <entry_id> --store <store_id> [--include-body]
 ```
 
 ---
@@ -281,7 +320,7 @@ uv run outlookctl calendar get --id <entry_id> --store <store_id> [--include-bod
 Create a calendar event or meeting.
 
 ```bash
-uv run outlookctl calendar create --subject <subject> --start <datetime> [OPTIONS]
+outlookctl calendar create --subject <subject> --start <datetime> [OPTIONS]
 ```
 
 **Options:**
@@ -308,8 +347,10 @@ uv run outlookctl calendar create --subject <subject> --start <datetime> [OPTION
 Send meeting invitations. **Requires confirmation.**
 
 ```bash
-uv run outlookctl calendar send --id <entry_id> --store <store_id> --confirm-send YES
+outlookctl calendar send --id <entry_id> --store <store_id> --confirm-send YES
 ```
+
+- `--confirm-send-file` - Path to a file containing "YES" (instead of `--confirm-send`)
 
 ---
 
@@ -318,7 +359,7 @@ uv run outlookctl calendar send --id <entry_id> --store <store_id> --confirm-sen
 Respond to a meeting invitation.
 
 ```bash
-uv run outlookctl calendar respond --id <entry_id> --store <store_id> --response accept|decline|tentative
+outlookctl calendar respond --id <entry_id> --store <store_id> --response accept|decline|tentative
 ```
 
 **Options:**
@@ -331,7 +372,7 @@ uv run outlookctl calendar respond --id <entry_id> --store <store_id> --response
 Update an existing calendar event.
 
 ```bash
-uv run outlookctl calendar update --id <entry_id> --store <store_id> [OPTIONS]
+outlookctl calendar update --id <entry_id> --store <store_id> [OPTIONS]
 ```
 
 **Options:**
@@ -353,7 +394,7 @@ uv run outlookctl calendar update --id <entry_id> --store <store_id> [OPTIONS]
 Delete a calendar event.
 
 ```bash
-uv run outlookctl calendar delete --id <entry_id> --store <store_id> [--no-cancel]
+outlookctl calendar delete --id <entry_id> --store <store_id> [--no-cancel]
 ```
 
 **Options:**
